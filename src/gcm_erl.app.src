@@ -1,0 +1,31 @@
+{application, gcm_erl,
+    [
+        {description, "Google Cloud Messaging Notification server"},
+        {vsn, {cmd, "echo `cat APP_VERSION`"}},
+        {registered, []},
+        {applications, [
+                kernel,
+                stdlib,
+                sasl,
+                crypto,
+                public_key,
+                ssl,
+                inets,
+                mnesia,
+                lager,
+                sc_push_lib,
+                sc_util
+            ]},
+        {modules, [
+                gcm_erl_app,
+                sc_push_svc_gcm,
+                gcm_erl,
+                gcm_erl_session_sup,
+                gcm_erl_session,
+                gcm_json,
+                gcm_req_sched
+            ]},
+        {env, []},
+        {mod, { gcm_erl_app, []}}
+    ]
+}.

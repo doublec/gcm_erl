@@ -1,0 +1,6 @@
+@author Edwin Fine <efine@silentcircle.com>
+@copyright 2015 Silent Circle
+@version {@version}
+@title Google Cloud Messaging (GCM) SCPF service
+@doc `gcm_erl' is an SCPF service provider for Google Cloud Messaging (GCM).
+@end
