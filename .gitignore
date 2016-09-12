@@ -11,3 +11,5 @@ rel/gcm_erl
 logs
 .deps_plt
 .rebar/
+rebar3
+_build

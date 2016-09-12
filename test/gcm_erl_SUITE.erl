@@ -275,12 +275,11 @@ subs_receive_loop(Ref) ->
 %% Internal helper functions
 %%====================================================================
 init_per_testcase_common(Config) ->
-    (catch end_per_testcase_common(Config)),
-    ok = mnesia:create_schema([node()]),
+    %(catch end_per_testcase_common(Config)),
+    mnesia:create_schema([node()]),
     ok = application:set_env(gcm_erl, service, ct:get_config(service)),
     ok = application:set_env(gcm_erl, sessions, ct:get_config(sessions)),
     {ok, _} = application:ensure_all_started(gcm_erl),
-
     Config.
 
 end_per_testcase_common(Config) ->
@@ -288,7 +287,6 @@ end_per_testcase_common(Config) ->
     ok = application:stop(sc_push_lib),
     ok = application:stop(sc_util),
     ok = application:stop(jsx),
-    ok = application:stop(unsplit),
     stopped = mnesia:stop(),
     ok = mnesia:delete_schema([node()]),
     Config.
