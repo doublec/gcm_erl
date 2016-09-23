@@ -33,12 +33,13 @@
 
 %% gen_server callbacks
 -export([init/1,
-        handle_call/3,
-        handle_cast/2,
-        handle_info/2,
-        terminate/2,
-        code_change/3]).
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
 
+%%--------------------------------------------------------------------
 -define(SERVER, ?MODULE).
 
 -define(SECONDS, 1).
@@ -69,6 +70,7 @@
 -define(assertPosInt(Term), begin ?assert(is_integer(Term) andalso Term > 0), Term end).
 -define(assertBinary(Term), begin ?assert(is_binary(Term)), Term end).
 
+%%--------------------------------------------------------------------
 -type field() :: string().
 -type value() :: string().
 -type header() :: {field(), value()}.
@@ -85,8 +87,11 @@
                             shutdown |
                             {shutdown, term()} |
                             term().
+
+%%--------------------------------------------------------------------
 -include_lib("lager/include/lager.hrl").
 
+%%--------------------------------------------------------------------
 -record(gcm_req, {
         req_id                                 :: undefined | reference(),
         cb_pid                                 :: undefined | pid(),
@@ -124,20 +129,28 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
--export([start/2, start_link/2, stop/1, send/2, send/3,
-         async_send/2, async_send/3, get_state/1]).
--export_type([opt/0, start_opts/0]).
+-export([start/2,
+         start_link/2,
+         stop/1,
+         send/2,
+         send/3,
+         async_send/2,
+         async_send/3,
+         get_state/1]).
 
--type opt() :: {uri, string()} |
-               {api_key, binary()} |
-               {restricted_package_name, binary()} |
-               {max_req_ttl, non_neg_integer()} |
-               {max_backoff_secs, non_neg_integer()} |
-               {max_attempts, non_neg_integer()} |
-               {retry_interval, non_neg_integer()} |
-               {ssl_opts, list(ssl:ssloption())} |
-               {httpc_opts, list()}
-               .
+-export_type([opt/0,
+              start_opts/0]).
+
+-type opt() :: {uri, string()}
+             | {api_key, binary()}
+             | {restricted_package_name, binary()}
+             | {max_req_ttl, non_neg_integer()}
+             | {max_backoff_secs, non_neg_integer()}
+             | {max_attempts, non_neg_integer()}
+             | {retry_interval, non_neg_integer()}
+             | {ssl_opts, list(ssl:ssloption())}
+             | {httpc_opts, list()}
+             .
 
 -type start_opts() :: list(gcm_erl_session:opt()).
 
@@ -357,8 +370,14 @@ init([Name, Opts]) ->
 
 handle_call({send, Notification, Opts}, _From, #state{uri = URI} = State) ->
     _ = lager:info("send to ~s", [URI]),
-    GCMReq = make_gcm_req(self(), Notification, Opts, State, 1),
-    Reply = dispatch_req(GCMReq, State#state.httpc_opts, URI),
+    Reply = case try_make_gcm_req(self(), Notification, Opts, State, 1) of
+                {ok, GCMReq} ->
+                    dispatch_req(GCMReq, State#state.httpc_opts, URI);
+                {error, Reason} = Error ->
+                    _ = lager:error("Bad GCM notification: ~p, error: ~p",
+                                    [Notification, Reason]),
+                    Error
+            end,
     {reply, Reply, State};
 
 handle_call(get_state, _From, State) ->
@@ -385,8 +404,15 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({send, Notification, Opts}, #state{uri = URI} = State) ->
     _ = lager:info("send to ~s", [URI]),
-    GCMReq = make_gcm_req(self(), Notification, Opts, State, 1),
-    _ = dispatch_req(GCMReq, State#state.httpc_opts, URI),
+    Result = case try_make_gcm_req(self(), Notification, Opts, State, 1) of
+                 {ok, GCMReq} ->
+                     dispatch_req(GCMReq, State#state.httpc_opts, URI);
+                 {error, Reason} = Error ->
+                     _ = lager:error("Bad GCM notification: ~p, error: ~p",
+                                     [Notification, Reason]),
+                     Error
+             end,
+    _ = lager:debug("Result of sending ~p: ~p", [Notification, Result]),
     {noreply, State};
 handle_cast({reschedule, #gcm_req{} = Req, Hdrs}, State) when is_list(Hdrs) ->
     reschedule_req(self(), State, Req, Hdrs),
@@ -515,6 +541,7 @@ validate_args(Name, Opts) ->
         httpc_opts = HttpcOpts
     }.
 
+%%--------------------------------------------------------------------
 %% The HTTP request is sent asynchronously, and the request ID is added
 %% to the push request manager for tracking.
 %% The response is dealt with in handle_info({http, _}, State).
@@ -542,6 +569,7 @@ dispatch_req(GCMReq, HTTPCOpts, URI) ->
             {error, Reason}
     end.
 
+%%--------------------------------------------------------------------
 retrieve_req(RequestId) ->
     case sc_push_req_mgr:remove(RequestId) of
         [{_,_}|_] = PL ->
@@ -550,6 +578,7 @@ retrieve_req(RequestId) ->
             undefined
     end.
 
+%%--------------------------------------------------------------------
 -compile({inline, [{pv, 2}]}).
 pv(Key, PL) ->
     proplists:get_value(Key, PL).
@@ -558,6 +587,7 @@ pv(Key, PL) ->
 pv(Key, PL, Default) ->
     proplists:get_value(Key, PL, Default).
 
+%%--------------------------------------------------------------------
 pv_req(Key, PL) ->
     case pv(Key, PL) of
         undefined ->
@@ -566,6 +596,7 @@ pv_req(Key, PL) ->
             Val
     end.
 
+%%--------------------------------------------------------------------
 process_gcm_result(#gcm_req{} = Req, {StatusLine, Headers, Resp}) ->
     {_HTTPVersion, StatusCode, ReasonPhrase} = StatusLine,
     case StatusCode of
@@ -583,9 +614,11 @@ process_gcm_result(#gcm_req{} = Req, {StatusLine, Headers, Resp}) ->
             {reschedule, Headers}
     end.
 
+%%--------------------------------------------------------------------
 process_errors(#gcm_req{} = Req, ErrorList) ->
     [process_error(Req, Error) || Error <- ErrorList].
 
+%%--------------------------------------------------------------------
 %% Some of the errors require a reschedule of only those registration IDs that
 %% failed temporarily, e.g. "Unavailable" error.
 process_error_results(Pid, Req, Headers, ErrorResults) ->
@@ -598,9 +631,11 @@ process_error_results(Pid, Req, Headers, ErrorResults) ->
             async_resched(Pid, NewReq, Headers)
     end.
 
+%%--------------------------------------------------------------------
 get_failed_regids(ErrorResults) ->
     [BRegId || {failed_reg_id, BRegId} <- ErrorResults].
 
+%%--------------------------------------------------------------------
 %% @doc Replace the registration IDs in the existing
 %% request with the failed ones, so that it retries only those.
 replace_regids(Req, FailedRegIds) ->
@@ -612,6 +647,7 @@ replace_regids(Req, FailedRegIds) ->
     Req#gcm_req{req_data = ReqData,
                 http_req = HttpReq}.
 
+%%--------------------------------------------------------------------
 replace_prop(Key, Props, NewVal) ->
     lists:keyreplace(Key, 1, Props, {Key, NewVal}).
 
@@ -726,6 +762,7 @@ process_error(_Req, {canonical_id, {old, BRegId}, {new, CanonicalId}}) ->
 %%     </dd>
 %% </dl>
 
+%%--------------------------------------------------------------------
 check_json_resp(Req, Resp) ->
     try
         EJSON = jsx:decode(Resp),
@@ -738,6 +775,7 @@ check_json_resp(Req, Resp) ->
             {error, Reason}
     end.
 
+%%--------------------------------------------------------------------
 -spec check_ejson_resp(#gcm_req{}, list())
       -> ok | {ok, list()} | {error, term()}.
 check_ejson_resp(Req, EJSON) ->
@@ -750,6 +788,7 @@ check_ejson_resp(Req, EJSON) ->
             check_results(Req, Results)
     end.
 
+%%--------------------------------------------------------------------
 -spec check_results(#gcm_req{}, list()) -> ok | {ok, list()} | {error, term()}.
 check_results(Req, []) -> % No results, nothing to do
     _ = lager:warning("Expected GCM results, none found for req ~p", [Req]),
@@ -764,6 +803,7 @@ check_results(#gcm_req{req_data = Props}, Results) ->
     end,
     check_results(RegistrationIds, Results, []).
 
+%%--------------------------------------------------------------------
 -spec check_results(list(binary()), list(), list())
       ->  {ok, list()} |
           {error, {reg_ids_out_of_sync, {list(), list(), list()}}}.
@@ -778,6 +818,7 @@ check_results(RegIds, Results, Acc) ->
                     "RegIds: ~p~nResults:~pAcc:~p", [RegIds, Results, RAcc]),
     {error, {reg_ids_out_of_sync, {RegIds, Results, RAcc}}}.
 
+%%--------------------------------------------------------------------
 %% JsonProps may contain <<"message_id">>, <<"registration_id">>, and
 %% <<"error">>
 check_result(BRegId, JsonProps) ->
@@ -794,6 +835,7 @@ check_result(BRegId, JsonProps) ->
             end
     end.
 
+%%--------------------------------------------------------------------
 gcm_error_to_atom(<<"MissingRegistration">>)       -> gcm_missing_reg;
 gcm_error_to_atom(<<"InvalidRegistration">>)       -> gcm_invalid_reg;
 gcm_error_to_atom(<<"MismatchSenderId">>)          -> gcm_mismatched_sender;
@@ -808,11 +850,13 @@ gcm_error_to_atom(<<"DeviceMessageRateExceeded">>) -> gcm_device_message_rate_ex
 gcm_error_to_atom(<<"TopicsMessageRateExceeded">>) -> gcm_topics_message_rate_exceeded;
 gcm_error_to_atom(<<_/binary>>)                    -> gcm_unknown_error.
 
+%%--------------------------------------------------------------------
 %% @doc Implement exponential backoff algorithm when headers are
 %% absent.
 reschedule_req(Pid, State, #gcm_req{} = Request) ->
     reschedule_req(Pid, State, Request, []).
 
+%%--------------------------------------------------------------------
 %% @doc Implement exponential backoff algorithm, honoring any
 %% Retry-After header.
 reschedule_req(Pid, State, #gcm_req{} = Request, Headers) ->
@@ -831,6 +875,7 @@ reschedule_req(Pid, State, #gcm_req{} = Request, Headers) ->
             ok
     end.
 
+%%--------------------------------------------------------------------
 %% @doc Calculate exponential backoff
 calc_delay(State, Request, Headers) ->
     RequestAge = request_age(Request),
@@ -843,6 +888,7 @@ calc_delay(State, Request, Headers) ->
             {ok, calc_backoff_secs(State, Request, Headers)}
     end.
 
+%%--------------------------------------------------------------------
 calc_backoff_secs(State, Request, Headers) ->
     Secs = case retry_after_val(Headers) of
         Delay when Delay > 0 ->
@@ -852,12 +898,31 @@ calc_backoff_secs(State, Request, Headers) ->
     end,
     min(Secs, State#state.max_backoff_secs).
 
+%%--------------------------------------------------------------------
 retry_after_val(Headers) -> % headers come back in lowercase
     list_to_integer(pv("retry-after", Headers, "0")).
 
+%%--------------------------------------------------------------------
 request_age(#gcm_req{created_at = CreatedAt}) ->
     sc_util:posix_time() - CreatedAt.
 
+%%--------------------------------------------------------------------
+-spec try_make_gcm_req(NotifyPid, Notification, Opts, State,
+                       NumAttempts) -> Result when
+      NotifyPid :: pid(), Notification :: notification(),
+      Opts :: list(), State :: state(), NumAttempts :: non_neg_integer(),
+      Result :: {ok, gcm_req()} | {error, any()}.
+
+try_make_gcm_req(NotifyPid, Notification, Opts, State, NumAttempts) ->
+    try
+        Req = make_gcm_req(NotifyPid, Notification, Opts, State, NumAttempts),
+        {ok, Req}
+    catch
+        _:Error ->
+            {error, Error}
+    end.
+
+%%--------------------------------------------------------------------
 -spec make_gcm_req(NotifyPid, Notification, Opts, State,
                    NumAttempts) -> Result when
       NotifyPid :: pid(), Notification :: notification(),
@@ -887,6 +952,7 @@ make_gcm_req(NotifyPid, Notification, Opts, State, NumAttempts) ->
         backoff_secs = State#state.retry_interval
     }.
 
+%%--------------------------------------------------------------------
 -compile({inline, [{make_json_req, 3}]}).
 -spec make_json_req(Url, Headers, Notification) -> Result when
       Url :: url(), Headers :: headers(),
@@ -897,12 +963,14 @@ make_json_req(Url, Headers, Notification) ->
     Body = notification_to_json(Notification),
     {Url, Headers, ContentType, Body}.
 
+%%--------------------------------------------------------------------
 backoff_gcm_req(#gcm_req{num_attempts = Attempt} = R, NewBackoff) ->
     R#gcm_req{
         num_attempts = Attempt + 1,
         backoff_secs = NewBackoff
     }.
 
+%%--------------------------------------------------------------------
 -spec make_req_options(Pid, SSLOptions) -> Result when
       Pid :: pid(), SSLOptions :: list(), Result :: {HttpOptions, Options},
       HttpOptions :: list(), Options :: list().
@@ -914,6 +982,7 @@ make_req_options(Pid, []) ->
     ],
     make_req_options(Pid, SSLOptions);
 
+%%--------------------------------------------------------------------
 make_req_options(Pid, SSLOptions) ->
     HTTPOptions = [
         {timeout, 10000},
@@ -926,6 +995,7 @@ make_req_options(Pid, SSLOptions) ->
     ],
     {HTTPOptions, Options}.
 
+%%--------------------------------------------------------------------
 -spec make_notify_options(Opts) -> Result when
       Opts :: [proplists:property()],
       Result :: {NotifyPid, NotifyTypes},
@@ -941,11 +1011,13 @@ make_notify_options(Opts) ->
             {undefined, undefined}
     end.
 
+%%--------------------------------------------------------------------
 -spec notification_to_json(Notification) -> Result when
       Notification :: notification(), Result :: binary().
 notification_to_json(Notification) ->
     gcm_json:make_notification(Notification).
 
+%%--------------------------------------------------------------------
 do_cb(_Msg, #gcm_req{cb_pid = undefined}) ->
     ok;
 do_cb(_Msg, #gcm_req{cb_pid = Pid, subscriptions = []}) when is_pid(Pid) ->
@@ -963,6 +1035,7 @@ do_cb(Msg, #gcm_req{cb_pid = Pid,
     end.
 
 
+%%--------------------------------------------------------------------
 -spec stype('ok' | {'error', any()} | binary()) -> subscription().
 
 stype(ok)                -> completion;
