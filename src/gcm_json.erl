@@ -71,6 +71,8 @@
     | binary() | atom()
     | calendar:datetime().
 
+-type m_optional(T) :: 'None' | {'Some', T}.
+
 %%--------------------------------------------------------------------
 %% @doc Create a notification consisting of a JSON binary suitable for
 %% transmitting to the Google Cloud Messaging Service.
@@ -185,6 +187,7 @@ get_req_props(Notification) ->
             [{<<"to">>, valid_reg_id(RegId)}]
     end ++ [{<<"data">>, required(data, Notification)}].
 
+%%--------------------------------------------------------------------
 -spec get_opt_props(notification()) -> json_term().
 get_opt_props(Notification) ->
     case value(gcm, Notification) of
@@ -194,6 +197,7 @@ get_opt_props(Notification) ->
             L
     end.
 
+%%--------------------------------------------------------------------
 -spec get_valid_reg_ids(notification()) -> json_term().
 get_valid_reg_ids(Notification) ->
     case [valid_reg_id(RegId) ||
@@ -206,11 +210,13 @@ get_valid_reg_ids(Notification) ->
             L
     end.
 
+%%--------------------------------------------------------------------
 -compile({inline, [{valid_reg_id, 1}]}).
 -spec valid_reg_id(RegId :: binary()) -> binary().
 valid_reg_id(RegId) ->
     type_check(fun is_binary/1, RegId).
 
+%%--------------------------------------------------------------------
 required(K, PL) ->
     case value(K, PL) of
         V when V =:= undefined orelse V =:= <<>> ->
@@ -219,20 +225,26 @@ required(K, PL) ->
             V
     end.
 
+%%--------------------------------------------------------------------
+-spec optional(V) -> Result when
+      V :: any(), Result :: m_optional(V).
 optional(V) when V =:= undefined orelse V =:= <<>> ->
     'None';
 optional(V) ->
     {'Some', V}.
 
+%%--------------------------------------------------------------------
 -compile({inline, [{value, 2}]}).
 value(Key, PL) ->
     proplists:get_value(Key, PL).
 
+%%--------------------------------------------------------------------
 %% "Monadic" type check, T =:= {'Some', X} | T =:= 'None'
 %% Type checks X, returns X if type ok, 'None' if T =:= 'None'
 -type type_pred() :: fun((X :: any()) -> boolean()).
--spec m_type_check(type_pred(), 'None') -> 'None';
-                  (type_pred(), {'Some', X :: any()}) -> X :: any().
+-spec m_type_check(Pred, Optional) -> Result when
+      Pred :: type_pred(), Optional :: m_optional(Val),
+      Val :: any(), Result :: 'None' | Val.
 m_type_check(TypePred, T) when is_function(TypePred, 1) ->
     case T of
         'None' ->
@@ -241,6 +253,7 @@ m_type_check(TypePred, T) when is_function(TypePred, 1) ->
             type_check(TypePred, X)
     end.
 
+%%--------------------------------------------------------------------
 -spec type_check(TypePred, T) -> T when
       TypePred :: fun((X :: any()) -> boolean()), T :: any().
 type_check(TypePred, T) when is_function(TypePred, 1) ->
@@ -248,45 +261,55 @@ type_check(TypePred, T) when is_function(TypePred, 1) ->
         true ->
             T;
         false ->
-            throw({type_check_failed, {TypePred, T}})
+            throw(type_check_failed)
     end.
 
+%%--------------------------------------------------------------------
 -spec optional_keys() -> [#key_t{}].
 
 optional_keys() ->
     [
         #key_t{key = priority,
                key_bin = <<"priority">>,
-               type_fun = fun is_binary/1},
+               type_fun = fun erlang:is_binary/1},
         #key_t{key = content_available,
                key_bin = <<"content_available">>,
-               type_fun = fun is_boolean/1},
+               type_fun = fun erlang:is_boolean/1},
         #key_t{key = collapse_key,
                key_bin = <<"collapse_key">>,
-               type_fun = fun is_binary/1},
+               type_fun = fun erlang:is_binary/1},
         #key_t{key = delay_while_idle,
                key_bin = <<"delay_while_idle">>,
-               type_fun = fun is_boolean/1},
+               type_fun = fun erlang:is_boolean/1},
         #key_t{key = time_to_live,
                key_bin = <<"time_to_live">>,
-               type_fun = fun is_integer/1},
+               type_fun = fun erlang:is_integer/1},
         #key_t{key = restricted_package_name,
                key_bin = <<"restricted_package_name">>,
-               type_fun = fun is_binary/1},
+               type_fun = fun erlang:is_binary/1},
         #key_t{key = dry_run,
                key_bin = <<"dry_run">>,
-               type_fun = fun is_boolean/1}
+               type_fun = fun erlang:is_boolean/1}
     ].
 
 %%
+%%--------------------------------------------------------------------
 -spec type_check_opt_props(PL::list(), KeyRecs::list(#key_t{}))
       -> [{Key::binary(), Val::any()}].
 type_check_opt_props(PL, [#key_t{}|_] = KeyRecs) ->
-    [{R#key_t.key_bin, Val} ||
-        #key_t{key = K, type_fun = F} = R <- KeyRecs,
-        begin
-                Val = m_type_check(F, optional(value(K, PL))),
-                Val =/= 'None'
-        end
-    ].
+    [{KeyBin, Val} || #key_t{key_bin=KeyBin} = R <- KeyRecs,
+                      (Val = do_type_check(R, PL)) /= 'None'].
 
+%%--------------------------------------------------------------------
+-spec do_type_check(KeyRec, PL) -> Result when
+      KeyRec :: #key_t{}, PL :: proplist:proplists(),
+      Val :: any(), Result :: 'None' | Val.
+do_type_check(#key_t{key=K, type_fun=F}, PL) ->
+    V = value(K, PL),
+    try
+        m_type_check(F, optional(V))
+    catch
+        throw:type_check_failed ->
+            {name, FName} = erlang:fun_info(F, name),
+            throw({type_check_failed, {pred, FName, 'key', K, 'val', V}})
+    end.
