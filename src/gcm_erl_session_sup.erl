@@ -102,3 +102,4 @@ start_child(Opts) ->
     SessCfg = sc_util:req_val(config, Opts),
     start_child(Name, SessCfg).
 
+%% vim: ts=4 sts=4 sw=4 et tw=80

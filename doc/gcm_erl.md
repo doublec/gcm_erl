@@ -102,7 +102,7 @@ defaults if omitted.
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by proplist <code>Notification</code>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#async_send-2">async_send/2</a></td><td></td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by proplist <code>Notification</code>
 <code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#start_session-2">start_session/2</a></td><td>
 Start a named session.</td></tr><tr><td valign="top"><a href="#stop_session-1">stop_session/1</a></td><td>Stop named session.</td></tr></table>
 
@@ -110,6 +110,16 @@ Start a named session.</td></tr><tr><td valign="top"><a href="#stop_session-1">s
 <a name="functions"></a>
 
 ## Function Details ##
+
+<a name="async_send-2"></a>
+
+### async_send/2 ###
+
+<pre><code>
+async_send(SvrRef, Notification) -&gt; Result
+</code></pre>
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 <a name="send-2"></a>
 
@@ -119,7 +129,7 @@ Start a named session.</td></tr><tr><td valign="top"><a href="#stop_session-1">s
 send(SvrRef, Notification) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = ok | {error, Reason}</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by proplist `Notification`
 `SvrRef`.

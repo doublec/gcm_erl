@@ -93,7 +93,8 @@
 -export([
         start_session/2,
         stop_session/1,
-        send/2
+        send/2,
+        async_send/2
     ]).
 
 %%--------------------------------------------------------------------
@@ -146,9 +147,18 @@ stop_session(Name) when is_atom(Name) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Notification) -> Result when
       SvrRef :: term(), Notification :: gcm_json:notification(),
-      Result :: ok | {error, Reason}, Reason :: term().
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
+      Reason :: term().
 send(SvrRef, Notification) when is_list(Notification) ->
     gcm_erl_session:send(SvrRef, Notification).
+
+-spec async_send(SvrRef, Notification) -> Result when
+      SvrRef :: term(), Notification :: gcm_json:notification(),
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
+      Reason :: term().
+async_send(SvrRef, Notification) when is_list(Notification) ->
+    gcm_erl_session:async_send(SvrRef, Notification).
+
 
 %%--------------------------------------------------------------------
 %% Internal functions

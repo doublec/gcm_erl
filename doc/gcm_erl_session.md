@@ -8,7 +8,7 @@
 
 GCM server session.
 
-Copyright (c) 2015 Silent Circle
+Copyright (c) 2015, 2016 Silent Circle
 
 __Behaviours:__ [`gen_server`](gen_server.md).
 
@@ -18,16 +18,63 @@ __Authors:__ Edwin Fine ([`efine@silentcircle.com`](mailto:efine@silentcircle.co
 
 ## Description ##
 
-There must be one session per API key and
-Sessions must have unique (i.e. they are registered) names
-within the node.
+There must be one session per API key and sessions must have unique (i.e.
+they are registered) names within the node.
 
-Reference:
 
-[](http://developer.android.com/guide/google/gcm/gcm.md#server)
+#### <a name="Request">Request</a> ####
+
+```
+   Nf = [{id, sc_util:to_bin(RegId)},
+                   {data, [{alert, sc_util:to_bin(Msg)}]}],
+   {ok, Res} = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
+```
+
+Note that the above notification is semantically identical to
+
+```
+   Nf = [{registration_ids, [sc_util:to_bin(RegId)]},
+                   {data, [{alert, sc_util:to_bin(Msg)]}].
+```
+
+It follows that you can send to multiple registration ids:
+
+```
+   BRegIds = [sc_util:to_bin(RegId) || RegId <- RegIds],
+   Nf = [{registration_ids, BRegIds},
+         {data, [{alert, sc_util:to_bin(Msg)}]}
+   ],
+   Rsps = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
+```
+
+
+#### <a name="JSON">JSON</a> ####
+
+This is an example of the JSON sent to GCM:
+
+```
+   {
+     "to": "dQMPBffffff:APA91bbeeff...8yC19k7ULYDa9X",
+     "priority": "high",
+     "collapse_key": "true",
+     "data": {"alert": "Some text"}
+   }
+```
+
+
 <a name="types"></a>
 
 ## Data Types ##
+
+
+
+
+### <a name="type-bstring">bstring()</a> ###
+
+
+<pre><code>
+bstring() = binary()
+</code></pre>
 
 
 
@@ -59,17 +106,27 @@ opt() = {uri, string()} | {api_key, binary()} | {restricted_package_name, binary
 start_opts() = [<a href="gcm_erl_session.md#type-opt">gcm_erl_session:opt()</a>]
 </code></pre>
 
+
+
+
+### <a name="type-uuid">uuid()</a> ###
+
+
+<pre><code>
+uuid() = <a href="#type-bstring">bstring()</a>
+</code></pre>
+
 <a name="index"></a>
 
 ## Function Index ##
 
 
 <table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#async_send-2">async_send/2</a></td><td>Asynchronously sends a notification specified by
-<code>Notification</code> via <code>SvrRef</code>; same as <a href="#send-2"><code>send/2</code></a> otherwise.</td></tr><tr><td valign="top"><a href="#async_send-3">async_send/3</a></td><td>Asynchronously sends a notification specified by
-<code>Notification</code> via <code>SvrRef</code> with options; same as <a href="#send-3"><code>send/3</code></a>
-otherwise.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by <code>Notification</code> via
-<code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Send a notification specified by <code>Notification</code> via
-<code>SvrRef</code>, with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr></table>
+<code>Nf</code> via <code>SvrRef</code>; same as <a href="#send-2"><code>send/2</code></a> otherwise.</td></tr><tr><td valign="top"><a href="#async_send-3">async_send/3</a></td><td>Asynchronously sends a notification specified by
+<code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#async_send_cb-5">async_send_cb/5</a></td><td>Asynchronously sends a notification specified by
+<code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by <code>Nf</code> via
+<code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Send a notification specified by <code>Nf</code> via
+<code>SvrRef</code>, with options <code>Opts</code> (currently unused).</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr></table>
 
 
 <a name="functions"></a>
@@ -81,36 +138,87 @@ otherwise.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Se
 ### async_send/2 ###
 
 <pre><code>
-async_send(SvrRef::term(), Notification::<a href="#type-notification">notification()</a>) -&gt; ok
+async_send(SvrRef, Nf) -&gt; Result
 </code></pre>
-<br />
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {submitted, UUID}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Reason = term()</code></li></ul>
 
 Asynchronously sends a notification specified by
-`Notification` via `SvrRef`; same as [`send/2`](#send-2) otherwise.
+`Nf` via `SvrRef`; same as [`send/2`](#send-2) otherwise.
 
 <a name="async_send-3"></a>
 
 ### async_send/3 ###
 
 <pre><code>
-async_send(SvrRef::term(), Notification::<a href="#type-notification">notification()</a>, Opts::list()) -&gt; ok
+async_send(SvrRef, Nf, Opts) -&gt; Result
 </code></pre>
-<br />
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {submitted, UUID}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Reason = term()</code></li></ul>
 
 Asynchronously sends a notification specified by
-`Notification` via `SvrRef` with options; same as [`send/3`](#send-3)
-otherwise.
+`Nf` via `SvrRef` with options `Opts`.
+
+<a name="async_send_cb-5"></a>
+
+### async_send_cb/5 ###
+
+`async_send_cb(SvrRef, Nf, Opts, ReplyPid, Cb) -> any()`
+
+Asynchronously sends a notification specified by
+`Nf` via `SvrRef` with options `Opts`.
+
+
+### <a name="Parameters">Parameters</a> ###
+
+
+
+<dt><code>Nf</code></dt>
+
+
+
+
+<dd>The notification proplist.</dd>
+
+
+
+
+<dt><code>ReplyPid</code></dt>
+
+
+
+
+<dd>A <code>pid</code> to which asynchronous responses are to be sent.</dd>
+
+
+
+
+<dt><code>Callback</code></dt>
+
+
+
+
+<dd><p>A function to be called when the asynchronous operation is complete.
+Its function spec is</p><p></p><pre>    -spec callback(NfPL, Req, Resp) -> any() when
+          NfPL :: proplists:proplist(), % Nf proplist
+          Req  :: proplists:proplist(), % Request data
+          Resp :: {ok, ParsedResp} | {error, term()},
+          ParsedResp :: proplists:proplist().</pre>
+</dd>
+
+
 
 <a name="send-2"></a>
 
 ### send/2 ###
 
 <pre><code>
-send(SvrRef::term(), Notification::<a href="#type-notification">notification()</a>) -&gt; {ok, Ref::term()} | {error, Reason::term()}
+send(SvrRef, Nf) -&gt; Result
 </code></pre>
-<br />
 
-Send a notification specified by `Notification` via
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
+
+Send a notification specified by `Nf` via
 `SvrRef`.  For JSON format, see
 [
 GCM Architectural Overview](http://developer.android.com/guide/google/gcm/gcm.md#server).
@@ -122,44 +230,15 @@ __See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [
 ### send/3 ###
 
 <pre><code>
-send(SvrRef::term(), Notification::<a href="#type-notification">notification()</a>, Opts::list()) -&gt; {ok, Ref::term()} | {error, Reason::term()}
+send(SvrRef, Nf, Opts) -&gt; Result
 </code></pre>
-<br />
 
-Send a notification specified by `Notification` via
-`SvrRef`, with options `Opts`.
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
-For JSON format, see
-[
-GCM Architectural Overview](http://developer.android.com/guide/google/gcm/gcm.md#server).
+Send a notification specified by `Nf` via
+`SvrRef`, with options `Opts` (currently unused).
 
-
-### <a name="Options">Options</a> ###
-
-
-
-
-<dt><code>{callback, {pid(), [progress|completion]}}</code></dt>
-
-
-
-
-<dd><p>Optional internal parameters. This is never sent to GCM.</p><p></p><p><code>{callback, {pid(), [...]}}</code> requests that one or more
-status messages be sent to <code>pid()</code>. Status messages consist
-of <code>progress</code> and <code>completion</code> messages. Each message is in
-the format <code>{gcm_erl, StatusType, Ref, Status}</code>.
-<code>StatusType</code> is either <code>progress</code> or <code>completion</code>. No
-further messages will be sent for that reference once a
-<code>completion</code> status is sent. <code>Ref</code> is the reference that
-<code>send/3</code> returns on success (i.e. in <code>{ok, Ref}</code>). <code>Status</code>
-is a <code>term()</code> that depends on the <code>StatusType</code> and state of
-the request. For <code>progress</code> messages, <code>Status</code> is a binary
-string, e.g. <code><<"accepted">></code>. For <code>completion</code>, <code>Status</code> is
-either <code>ok</code> or <code>{error, term()}</code>.</p><p></p><p>The default is to deliver no status messages.</p><p></p><h4><a name="Example">Example</a></h4>
-<pre>       Opts = [{callback, {self(), [completion]}}],</pre>
-</dd>
-
-
+For JSON format, see Google GCM documentation.
 
 __See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [gcm_json:notification/0](gcm_json.md#notification-0).
 

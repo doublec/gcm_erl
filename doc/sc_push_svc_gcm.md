@@ -22,17 +22,14 @@ runs as a supervisor, so should be started either from an application
 module or a supervisor.
 
 
-### <a name="Synopsis">Synopsis</a> ###
-
-
-#### <a name="Configuration">Configuration</a> ####
+### <a name="Session_Configuration">Session Configuration</a> ###
 
 Start the API by calling start_link/1 and providing a list of
 sessions to start. Each session is a proplist as shown below:
 
 ```
    [
-       {name, 'gcm-com.example.Example'},
+       {name, 'gcm-com.example.MyApp'},
        {config, [
                {api_key, <<"AIzaffffffffffffffffffffffffffffffff73w">>},
                {ssl_opts, [{verify, verify_none}]},
@@ -44,40 +41,72 @@ sessions to start. Each session is a proplist as shown below:
    ]
 ```
 
-Note that the session _must_ be named `gcm-AppId`,
-where `AppId` is the Android App ID, such as
-`com.example.Example`.
+Note that the session _must_ be named `gcm-{AppId}`,
+where `{AppId}` is the Android App ID, such as
+`com.example.MyApp`.
 
 
-#### <a name="Sending_an_alert_via_the_API">Sending an alert via the API</a> ####
+### <a name="Sending_an_alert_via_the_sc_push_API">Sending an alert via the sc_push API</a> ###
 
-Alerts should usually be sent via the API, `gcm_erl`.
+At the top level, alerts are sent via sc_push. Here is an example of
+an alert that directly specifies the receivers (only one in this case)
+and some gcm-specific options:
 
 ```
    Alert = <<"Hello, Android!">>,
-   Notification = [{alert, Alert}],
-   {ok, SeqNo} = gcm_erl:send(my_push_tester, Notification).
+   RegId = <<"dQMPBffffff:APA91bbeeff...8yC19k7ULYDa9X">>,
+   AppId = <<"com.example.MyApp">>,
+   Nf = [{alert, Alert,
+         {receivers,[{svc_appid_tok, [{gcm, AppId, RegId}]}]},
+         {gcm, [{priority, <<"high">>}, {collapse_key, <<"true">>}]}],
+   [{ok, Ref}] = gcm_erl:send(Nf).
+```
+
+Note that the same alert may be sent to multiple receivers, in which
+case there will be multiple return values (one per notification sent):
+
+```
+   Alert = <<"Hello, Android!">>,
+   RegId1 = <<"dQMPBffffff:APA91bbeeff...8yC19k7ULYDa9X">>,
+   RegId2 = <<"dQMPBeeeeee:APA91dddddd...8yCefefefefefe">>,
+   AppId = <<"com.example.MyApp">>,
+   Receivers = [{svc_appid_tok,[{gcm, AppId, RegId1},{gcm, AppId, RegId2}]}],
+   Nf = [{alert,<<"Please register">>},
+         {receivers, Receivers},
+         {gcm, [{priority, <<"high">>}, {collapse_key, <<"true">>}]}],
+   [{ok, Ref,}, {ok, Ref2}] = gcm_erl:send(Nf).
+   In the same way, an alert may be sent to receivers on different services
+   and using different receiver types, such as `tag'.
+   === Sending an alert via the gcm_erl API ===
+   ```
+   Alert = <<"Hello, Android!">>,
+   {ok, SeqNo} = gcm_erl:send('gcm-com.example.MyApp', Notification).
 ```
 
 
-#### <a name="Sending_an_alert_via_a_session_(for_testing_only)">Sending an alert via a session (for testing only)</a> ####
+#### <a name="Sending_an_alert_via_a_session">Sending an alert via a session</a> ####
 
 ```
-   Notification = [
-       {id, sc_util:to_bin(RegId)}, % Required key
-       {data, [{alert, sc_util:to_bin(Msg)}]}
+   Notification = [{id, sc_util:to_bin(RegId)},
+                   {data, [{alert, sc_util:to_bin(Msg)}]}],
+   {ok, SeqNo} = gcm_erl_session:send('gcm-com.example.MyApp', Notification).
+```
+
+Note that the above notification is semantically identical to
+
+```
+   Notification = [{registration_ids, [sc_util:to_bin(RegId)]},
+                   {data, [{alert, sc_util:to_bin(Msg)]}].
+```
+
+It follows that you can send to multiple registration ids:
+
+```
+   BRegIds = [sc_util:to_bin(RegId) || RegId <- RegIds],
+   Nf = [{registration_ids, BRegIds},
+         {data, [{alert, sc_util:to_bin(Msg)}]}
    ],
-   {ok, SeqNo} = gcm_erl_session:send(my_push_tester, Notification).
-```
-
-For multiple registration ids:
-
-```
-   Notification = [
-       {registration_ids, [sc_util:to_bin(RegId) || RegId <- RegIds]}, % Required key
-       {data, [{alert, sc_util:to_bin(Msg)}]}
-   ],
-   {ok, SeqNo} = gcm_erl_session:send(my_push_tester, Notification).
+   Rsps = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
 ```
 
 <a name="index"></a>

@@ -37,7 +37,8 @@
         restricted_package_name/0,
         dry_run/0,
         data/0,
-        notification/0
+        notification/0,
+        json_term/0
     ]).
 
 -type recipient_id()            :: binary().
@@ -313,3 +314,5 @@ do_type_check(#key_t{key=K, type_fun=F}, PL) ->
             {name, FName} = erlang:fun_info(F, name),
             throw({type_check_failed, {pred, FName, 'key', K, 'val', V}})
     end.
+
+%% vim: ts=4 sts=4 sw=4 et tw=80
