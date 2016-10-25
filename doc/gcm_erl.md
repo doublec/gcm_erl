@@ -26,7 +26,6 @@ defaults if omitted.
 
 #### <a name="Starting_a_session">Starting a session</a> ####
 
-
 ```
    Opts = [
                %% Required GCM API key
@@ -50,66 +49,85 @@ defaults if omitted.
                %% Reserved for future use
                {failure_action, fun(_)}
            ],
-   {ok, Pid} = gcm_erl:start_session(my_push_tester, Opts).
+   {ok, Pid} = gcm_erl:start_session('gcm-com.example.MyApp', Opts).
 ```
 
 
 #### <a name="Sending_an_alert_via_the_API">Sending an alert via the API</a> ####
 
-
 ```
    RegId = <<"e7b300...a67b">>, % From earlier Android registration
-   SimpleOpts = [
+   Opts = [
        {id, RegId},
        {collapse_key, <<"New Mail">>},
        {data, [{msg, <<"You have new mail">>}]}
    ],
-   {ok, Ref} = gcm_erl:send(my_push_tester, SimpleOpts).
+   {ok, Result} = gcm_erl:send('gcm-com.example.MyApp', Opts),
+   {UUID, Props} = Result.
 ```
 
 
 #### <a name="Sending_an_alert_via_a_session_(for_testing_only)">Sending an alert via a session (for testing only)</a> ####
 
-
 ```
-   {ok, Ref} = gcm_erl_session:send(my_push_tester, SimpleOpts).
+   {ok, Result} = gcm_erl_session:send('gcm-com.example.MyApp',
+                                                  Opts),
+   {UUID, Props} = Result.
 ```
 
 
 #### <a name="Stopping_a_session">Stopping a session</a> ####
 
-
 ```
-   ok = gcm_erl:stop_session(my_push_tester).
+   ok = gcm_erl:stop_session('gcm-com.example.MyApp').
 ```
-
-
-### <a name="References">References</a> ###
-
-
-
-
-<dt>[REF]</dt>
-
-
-
-<dd>Description</dd>
-
-
 
 <a name="index"></a>
 
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by proplist <code>Notification</code>
-<code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#start_session-2">start_session/2</a></td><td>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#async_send-2">async_send/2</a></td><td>Asynchronously send a notification specified by proplist
+<code>Notification</code> to <code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#async_send-3">async_send/3</a></td><td>Asynchronously send a notification specified by proplist
+<code>Notification</code> to <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by proplist <code>Notification</code>
+to <code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Send a notification specified by proplist <code>Notification</code>
+to <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#start_session-2">start_session/2</a></td><td>
 Start a named session.</td></tr><tr><td valign="top"><a href="#stop_session-1">stop_session/1</a></td><td>Stop named session.</td></tr></table>
 
 
 <a name="functions"></a>
 
 ## Function Details ##
+
+<a name="async_send-2"></a>
+
+### async_send/2 ###
+
+<pre><code>
+async_send(SvrRef, Notification) -&gt; Result
+</code></pre>
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {ok, {submitted, Reply}} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
+
+Asynchronously send a notification specified by proplist
+`Notification` to `SvrRef`.
+
+__See also:__ [async_send/3](#async_send-3), [gcm_erl_session:async_send/2](gcm_erl_session.md#async_send-2).
+
+<a name="async_send-3"></a>
+
+### async_send/3 ###
+
+<pre><code>
+async_send(SvrRef, Notification, Opts) -&gt; Result
+</code></pre>
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Opts = <a href="proplists.md#type-proplist">proplists:proplist()</a></code></li><li><code>Result = {ok, {submitted, Reply}} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
+
+Asynchronously send a notification specified by proplist
+`Notification` to `SvrRef` with options `Opts`.
+
+__See also:__ [send/3](#send-3), [gcm_erl_session:async_send/3](gcm_erl_session.md#async_send-3).
 
 <a name="send-2"></a>
 
@@ -119,10 +137,27 @@ Start a named session.</td></tr><tr><td valign="top"><a href="#stop_session-1">s
 send(SvrRef, Notification) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = ok | {error, Reason}</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by proplist `Notification`
-`SvrRef`.
+to `SvrRef`.
+
+__See also:__ [send/3](#send-3), [gcm_erl_session:send/2](gcm_erl_session.md#send-2).
+
+<a name="send-3"></a>
+
+### send/3 ###
+
+<pre><code>
+send(SvrRef, Notification, Opts) -&gt; Result
+</code></pre>
+
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Opts = <a href="proplists.md#type-proplist">proplists:proplist()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
+
+Send a notification specified by proplist `Notification`
+to `SvrRef` with options `Opts`. `Opts` currently only supports
+`{http_headers, [{string(), string()}]}` to provide extra headers.
+
 Note that `SvrRef` may be the registered name or `{Name, Node}`,
 where `Node` is an Erlang node on which the registered process
 called `Name` is running.
@@ -131,7 +166,7 @@ called `Name` is running.
 #### <a name="Example">Example</a> ####
 
 ```
-  Name = 'my_android_app1', % Note: atom() !
+  Name = 'gcm-com.example.MyApp', % Note: atom() !
   Notification = [
      %% Required, all others optional
      {id, <<"abc">>},
@@ -144,11 +179,11 @@ called `Name` is running.
      {restricted_package_name, <<"foo_pkg>>},
      {dry_run, false}
   ],
-  gcm_erl:send(Name, Notification),
-  gcm_erl:send({Name, node()}, Notification).
+  gcm_erl:send(Name, Notification, []),
+  gcm_erl:send({Name, node()}, Notification, []).
 ```
 
-__See also:__ [gcm_erl_session:send/2](gcm_erl_session.md#send-2).
+__See also:__ [gcm_erl_session:send/3](gcm_erl_session.md#send-3).
 
 <a name="start_session-2"></a>
 

@@ -22,9 +22,12 @@
 %%% This is the API to the GCM Service Provider.
 %%%
 %%% == Synopsis ==
+%%%
 %%% In the example below, all optional values are shown with their
 %%% defaults if omitted.
+%%%
 %%% === Starting a session ===
+%%%
 %%% ```
 %%% Opts = [
 %%%             %% Required GCM API key
@@ -49,34 +52,35 @@
 %%%             {failure_action, fun(_)}
 %%%         ],
 %%%
-%%% {ok, Pid} = gcm_erl:start_session(my_push_tester, Opts).
+%%% {ok, Pid} = gcm_erl:start_session('gcm-com.example.MyApp', Opts).
 %%% '''
 %%%
 %%% === Sending an alert via the API ===
+%%%
 %%% ```
 %%% RegId = <<"e7b300...a67b">>, % From earlier Android registration
-%%% SimpleOpts = [
+%%% Opts = [
 %%%     {id, RegId},
 %%%     {collapse_key, <<"New Mail">>},
 %%%     {data, [{msg, <<"You have new mail">>}]}
 %%% ],
-%%% {ok, Ref} = gcm_erl:send(my_push_tester, SimpleOpts).
+%%% {ok, Result} = gcm_erl:send('gcm-com.example.MyApp', Opts),
+%%% {UUID, Props} = Result.
 %%% '''
 %%%
 %%% === Sending an alert via a session (for testing only) ===
+%%%
 %%% ```
-%%% {ok, Ref} = gcm_erl_session:send(my_push_tester, SimpleOpts).
+%%% {ok, Result} = gcm_erl_session:send('gcm-com.example.MyApp',
+%%%                                                Opts),
+%%% {UUID, Props} = Result.
 %%% '''
 %%%
 %%% === Stopping a session ===
-%%% ```
-%%% ok = gcm_erl:stop_session(my_push_tester).
-%%% '''
 %%%
-%%% == References ==
-%%% <dl>
-%%%   <dt>[REF]</dt><dd>Description</dd>
-%%% </dl>
+%%% ```
+%%% ok = gcm_erl:stop_session('gcm-com.example.MyApp').
+%%% '''
 %%%
 %%% @end
 %%%-------------------------------------------------------------------
@@ -93,7 +97,10 @@
 -export([
         start_session/2,
         stop_session/1,
-        send/2
+        send/2,
+        send/3,
+        async_send/2,
+        async_send/3
     ]).
 
 %%--------------------------------------------------------------------
@@ -117,7 +124,24 @@ stop_session(Name) when is_atom(Name) ->
 
 %%--------------------------------------------------------------------
 %% @doc Send a notification specified by proplist `Notification'
-%% `SvrRef'.
+%% to `SvrRef'.
+%%
+%% @see send/3.
+%% @see gcm_erl_session:send/2.
+%% @end
+%%--------------------------------------------------------------------
+-spec send(SvrRef, Notification) -> Result when
+      SvrRef :: term(), Notification :: gcm_json:notification(),
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
+      Reason :: term().
+send(SvrRef, Notification) when is_list(Notification) ->
+    gcm_erl_session:send(SvrRef, Notification).
+
+%%--------------------------------------------------------------------
+%% @doc Send a notification specified by proplist `Notification'
+%% to `SvrRef' with options `Opts'. `Opts' currently only supports
+%% `{http_headers, [{string(), string()}]}' to provide extra headers.
+%%
 %% Note that `SvrRef' may be the registered name or `{Name, Node}',
 %% where `Node' is an Erlang node on which the registered process
 %% called `Name' is running.
@@ -125,7 +149,7 @@ stop_session(Name) when is_atom(Name) ->
 %% === Example ===
 %%
 %% ```
-%% Name = 'my_android_app1', % Note: atom() !
+%% Name = 'gcm-com.example.MyApp', % Note: atom() !
 %% Notification = [
 %%    %% Required, all others optional
 %%    {id, <<"abc">>},
@@ -138,18 +162,51 @@ stop_session(Name) when is_atom(Name) ->
 %%    {restricted_package_name, <<"foo_pkg>>},
 %%    {dry_run, false}
 %% ],
-%% gcm_erl:send(Name, Notification),
-%% gcm_erl:send({Name, node()}, Notification).
+%% gcm_erl:send(Name, Notification, []),
+%% gcm_erl:send({Name, node()}, Notification, []).
 %% '''
-%% @see gcm_erl_session:send/2.
+%% @see gcm_erl_session:send/3.
 %% @end
 %%--------------------------------------------------------------------
--spec send(SvrRef, Notification) -> Result when
+-spec send(SvrRef, Notification, Opts) -> Result when
       SvrRef :: term(), Notification :: gcm_json:notification(),
-      Result :: ok | {error, Reason}, Reason :: term().
-send(SvrRef, Notification) when is_list(Notification) ->
-    gcm_erl_session:send(SvrRef, Notification).
+      Opts :: proplists:proplist(),
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
+      Reason :: term().
+send(SvrRef, Notification, Opts) when is_list(Notification),
+                                is_list(Opts) ->
+    gcm_erl_session:send(SvrRef, Notification, Opts).
 
 %%--------------------------------------------------------------------
-%% Internal functions
+%% @doc Asynchronously send a notification specified by proplist
+%% `Notification' to `SvrRef'.
+%%
+%% @see async_send/3.
+%% @see gcm_erl_session:async_send/2.
+%% @end
 %%--------------------------------------------------------------------
+-spec async_send(SvrRef, Notification) -> Result when
+      SvrRef :: term(), Notification :: gcm_json:notification(),
+      Result :: {ok, {submitted, Reply}} | {error, Reason}, Reply :: term(),
+      Reason :: term().
+async_send(SvrRef, Notification) when is_list(Notification) ->
+    gcm_erl_session:async_send(SvrRef, Notification).
+
+%%--------------------------------------------------------------------
+%% @doc Asynchronously send a notification specified by proplist
+%% `Notification' to `SvrRef' with options `Opts'.
+%%
+%% @see send/3.
+%% @see gcm_erl_session:async_send/3.
+%% @end
+%%--------------------------------------------------------------------
+-spec async_send(SvrRef, Notification, Opts) -> Result when
+      SvrRef :: term(), Notification :: gcm_json:notification(),
+      Opts :: proplists:proplist(),
+      Result :: {ok, {submitted, Reply}} | {error, Reason}, Reply :: term(),
+      Reason :: term().
+async_send(SvrRef, Notification, Opts) when is_list(Notification),
+                                            is_list(Opts) ->
+    gcm_erl_session:async_send(SvrRef, Notification, Opts).
+
+

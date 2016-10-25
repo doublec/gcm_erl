@@ -79,6 +79,16 @@ gcm_opt() = <a href="#type-recipient_id">recipient_id()</a> | <a href="#type-reg
 
 
 
+### <a name="type-json_term">json_term()</a> ###
+
+
+<pre><code>
+json_term() = [{binary() | atom(), <a href="#type-json_term">json_term()</a>}] | [{}] | [<a href="#type-json_term">json_term()</a>] | [] | true | false | null | integer() | float() | binary() | atom() | <a href="calendar.md#type-datetime">calendar:datetime()</a>
+</code></pre>
+
+
+
+
 ### <a name="type-notification">notification()</a> ###
 
 

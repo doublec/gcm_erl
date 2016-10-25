@@ -29,7 +29,7 @@ clean: docclean
 	$(REBAR) clean
 
 ct: $(REBAR)
-	$(REBAR) do clean, ct
+	$(REBAR) do clean, ct --name ct1_scpf --setcookie scpf
 
 dialyzer: $(REBAR)
 	$(REBAR) dialyzer

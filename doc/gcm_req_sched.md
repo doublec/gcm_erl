@@ -2,6 +2,7 @@
 
 # Module gcm_req_sched #
 * [Description](#description)
+* [Data Types](#types)
 * [Function Index](#index)
 * [Function Details](#functions)
 
@@ -24,6 +25,41 @@ or crash will lose notifications that were to have been resubmitted.
 
 GCM notifications may be delayed because the GCM server was busy
 or temporarily unavailable.
+
+<a name="types"></a>
+
+## Data Types ##
+
+
+
+
+### <a name="type-time_posix_milli_seconds">time_posix_milli_seconds()</a> ###
+
+
+<pre><code>
+time_posix_milli_seconds() = pos_integer()
+</code></pre>
+
+
+
+
+### <a name="type-time_posix_secs">time_posix_secs()</a> ###
+
+
+<pre><code>
+time_posix_secs() = pos_integer()
+</code></pre>
+
+
+
+
+### <a name="type-trigger_time">trigger_time()</a> ###
+
+
+<pre><code>
+trigger_time() = <a href="#type-time_posix_secs">time_posix_secs()</a> | {<a href="#type-time_posix_milli_seconds">time_posix_milli_seconds()</a>, milli_seconds}
+</code></pre>
+
 <a name="index"></a>
 
 ## Function Index ##
@@ -44,7 +80,7 @@ Starts the server.</td></tr><tr><td valign="top"><a href="#stop-0">stop/0</a></t
 ### add/4 ###
 
 <pre><code>
-add(Id::any(), TriggerTime::pos_integer(), Data::any(), Pid::pid()) -&gt; ok
+add(Id::any(), TriggerTime::<a href="#type-trigger_time">trigger_time()</a>, Data::any(), Pid::pid()) -&gt; ok
 </code></pre>
 <br />
 
@@ -87,7 +123,7 @@ get(Id::any()) -&gt; {ok, {TriggerTime::pos_integer(), Data::any}} | notfound
 <br />
 
 Retrieve data with given id, and return `{TriggerTime, Data}`, or
-`notfound`. `TriggerTime` is POSIX time.
+`notfound`. `TriggerTime` is Erlang monotonic time in milliseconds.
 --------------------------------------------------------------------
 
 <a name="run_sweep-0"></a>

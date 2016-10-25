@@ -23,15 +23,14 @@
 %%% runs as a supervisor, so should be started either from an application
 %%% module or a supervisor.
 %%%
-%%% == Synopsis ==
-%%%
-%%% === Configuration ===
+%%% == Session Configuration ==
 %%%
 %%% Start the API by calling start_link/1 and providing a list of
 %%% sessions to start. Each session is a proplist as shown below:
+%%%
 %%% ```
 %%% [
-%%%     {name, 'gcm-com.example.Example'},
+%%%     {name, 'gcm-com.example.MyApp'},
 %%%     {config, [
 %%%             {api_key, <<"AIzaffffffffffffffffffffffffffffffff73w">>},
 %%%             {ssl_opts, [{verify, verify_none}]},
@@ -42,38 +41,77 @@
 %%%         ]}
 %%% ]
 %%% '''
-%%% Note that the session <em>must</em> be named `gcm-AppId',
-%%% where `AppId` is the Android App ID, such as
-%%% `com.example.Example'.
 %%%
-%%% === Sending an alert via the API ===
+%%% Note that the session <em>must</em> be named `gcm-{AppId}',
+%%% where `{AppId}' is the Android App ID, such as
+%%% `com.example.MyApp'.
 %%%
-%%% Alerts should usually be sent via the API, `gcm_erl'.
+%%% == Sending an alert via the sc_push API ==
+%%%
+%%% At the top level, alerts are sent via sc_push. Here is an example of
+%%% an alert that directly specifies the receivers (only one in this case)
+%%% and some gcm-specific options:
 %%%
 %%% ```
 %%% Alert = <<"Hello, Android!">>,
-%%% Notification = [{alert, Alert}],
-%%% {ok, SeqNo} = gcm_erl:send(my_push_tester, Notification).
+%%% RegId = <<"dQMPBffffff:APA91bbeeff...8yC19k7ULYDa9X">>,
+%%% AppId = <<"com.example.MyApp">>,
+%%%
+%%% Nf = [{alert, Alert},
+%%%       {receivers,[{svc_appid_tok, [{gcm, AppId, RegId}]}]},
+%%%       {gcm, [{priority, <<"high">>}, {collapse_key, <<"true">>}]}],
+%%%
+%%% [{ok, Ref}] = gcm_erl:send(Nf).
 %%% '''
 %%%
-%%% === Sending an alert via a session (for testing only) ===
+%%% Note that the same alert may be sent to multiple receivers, in which
+%%% case there will be multiple return values (one per notification sent):
 %%%
 %%% ```
-%%% Notification = [
-%%%     {id, sc_util:to_bin(RegId)}, % Required key
-%%%     {data, [{alert, sc_util:to_bin(Msg)}]}
-%%% ],
-%%% {ok, SeqNo} = gcm_erl_session:send(my_push_tester, Notification).
+%%% Alert = <<"Hello, Android!">>,
+%%% RegId1 = <<"dQMPBffffff:APA91bbeeff...8yC19k7ULYDa9X">>,
+%%% RegId2 = <<"dQMPBeeeeee:APA91dddddd...8yCefefefefefe">>,
+%%% AppId = <<"com.example.MyApp">>,
+%%% Receivers = [{svc_appid_tok,[{gcm, AppId, RegId1},{gcm, AppId, RegId2}]}],
+%%%
+%%% Nf = [{alert,<<"Please register">>},
+%%%       {receivers, Receivers},
+%%%       {gcm, [{priority, <<"high">>}, {collapse_key, <<"true">>}]}],
+%%%
+%%% [{ok, Ref,}, {ok, Ref2}] = gcm_erl:send(Nf).
+%%%
+%%% In the same way, an alert may be sent to receivers on different services
+%%% and using different receiver types, such as `tag'.
+%%%
+%%% === Sending an alert via the gcm_erl API ===
+%%%
+%%% ```
+%%% Alert = <<"Hello, Android!">>,
+%%% {ok, SeqNo} = gcm_erl:send('gcm-com.example.MyApp', Nf).
 %%% '''
 %%%
-%%% For multiple registration ids:
+%%% === Sending an alert via a session ===
 %%%
 %%% ```
-%%% Notification = [
-%%%     {registration_ids, [sc_util:to_bin(RegId) || RegId <- RegIds]}, % Required key
-%%%     {data, [{alert, sc_util:to_bin(Msg)}]}
-%%% ],
-%%% {ok, SeqNo} = gcm_erl_session:send(my_push_tester, Notification).
+%%% Nf = [{id, sc_util:to_bin(RegId)},
+%%%       {data, [{alert, sc_util:to_bin(Msg)}]}],
+%%% {ok, SeqNo} = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
+%%% '''
+%%%
+%%% Note that the above notification is semantically identical to
+%%%
+%%% ```
+%%% Nf = [{registration_ids, [sc_util:to_bin(RegId)]},
+%%%       {data, [{alert, sc_util:to_bin(Msg)]}].
+%%% '''
+%%%
+%%% It follows that you can send to multiple registration ids:
+%%%
+%%% ```
+%%% BRegIds = [sc_util:to_bin(RegId) || RegId <- RegIds],
+%%% Nf = [{registration_ids, BRegIds},
+%%%       {data, [{alert, sc_util:to_bin(Msg)}]}],
+%%% Rsps = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
 %%% '''
 %%%
 %%% @end
@@ -85,6 +123,7 @@
 %% Includes
 %%--------------------------------------------------------------------
 -include_lib("lager/include/lager.hrl").
+-include("gcm_erl_internal.hrl").
 
 %%--------------------------------------------------------------------
 %% Defines
@@ -105,17 +144,39 @@
 %% API
 %%--------------------------------------------------------------------
 -export([
-        start_link/1,
-        start_session/2,
-        stop_session/1,
-        send/2,
-        send/3,
-        async_send/2,
-        async_send/3
-    ]).
+         start_link/1,
+         start_session/2,
+         stop_session/1,
+         send/2,
+         send/3,
+         async_send/2,
+         async_send/3,
+         async_send_cb/5
+        ]).
 
 %% Supervisor callbacks
 -export([init/1]).
+
+%% Internal exports
+-export([
+         normalize_alert/1,
+         normalize_data/1,
+         normalize_id/1,
+         normalize_reg_ids/1,
+         normalize_token/1
+        ]).
+
+-import(lists, [keydelete/3, keystore/4]).
+
+%% ===================================================================
+%% Types
+%% ===================================================================
+-type notification() :: proplists:proplist().
+-type cb_req() :: proplists:proplist().
+-type cb_resp() :: {ok, term()} | {error, term()}.
+-type callback() :: fun((notification(), cb_req(), cb_resp()) -> any()).
+-type async_send_result() :: {ok, {submitted, uuid()}} | {error, term()}.
+-type uuid() :: uuid:uuid_str().
 
 %% ===================================================================
 %% API functions
@@ -147,51 +208,67 @@ stop_session(Name) when is_atom(Name) ->
     gcm_erl_session_sup:stop_child(Name).
 
 %%--------------------------------------------------------------------
-%% @doc Send a notification specified by proplist `Notification'
+%% @doc Send a notification specified by proplist `Nf'
 %% @end
 %%--------------------------------------------------------------------
--spec send(term(), gcm_json:notification()) ->
-    {ok, Ref::term()} | {error, Reason::term()}.
-send(Name, Notification) when is_list(Notification) ->
-    send(sync, Name, Notification, []).
+send(Name, Nf) when is_list(Nf) ->
+    send(sync, Name, Nf, []).
 
 %%--------------------------------------------------------------------
-%% @doc Send a notification specified by proplist `Notification' and
+%% @doc Send a notification specified by proplist `Nf' and
 %% with options `Opts'.
 %% @see gcm_erl_session:send/3.
 %% @end
 %%--------------------------------------------------------------------
--spec send(term(), gcm_json:notification(), [{atom(), term()}]) ->
-    {ok, Ref::term()} | {error, Reason::term()}.
-send(Name, Notification, Opts) when is_list(Notification), is_list(Opts) ->
-    send(sync, Name, Notification, Opts).
+send(Name, Nf, Opts) when is_list(Nf), is_list(Opts) ->
+    send(sync, Name, Nf, Opts).
 
 %%--------------------------------------------------------------------
-%% @doc Asynchronously sends a notification specified by proplist
-%% `Notification'; Same as {@link send/2} beside returning only 'ok' on success.
+%% @doc Asynchronously send a notification specified by proplist
+%% `Nf'; Same as {@link send/2} beside returning only 'ok' on success.
 %% @end
 %%--------------------------------------------------------------------
--spec async_send(term(), gcm_json:notification()) ->
-    ok | {error, Reason::term()}.
-async_send(Name, Notification) when is_list(Notification) ->
-    send(async, Name, Notification, []).
+async_send(Name, Nf) when is_list(Nf) ->
+    send(async, Name, Nf, []).
 
 %%--------------------------------------------------------------------
-%% @doc Asynchronously sends a notification specified by proplist
-%% `Notification'; Same as {@link send/3} beside returning only 'ok' on success.
+%% @doc Asynchronously send a notification specified by proplist
+%% `Nf' with options `Opts'. `Opts' is currently unused.
 %% @end
 %%--------------------------------------------------------------------
--spec async_send(term(), gcm_json:notification(), [{atom(), term()}]) ->
-    ok | {error, Reason::term()}.
-async_send(Name, Notification, Opts) when is_list(Notification), is_list(Opts) ->
-    send(async, Name, Notification, Opts).
+async_send(Name, Nf, Opts) when is_list(Nf), is_list(Opts) ->
+    send(async, Name, Nf, Opts).
+
+%%--------------------------------------------------------------------
+%% @doc Asynchronously send a notification specified by proplist
+%% `Nf'
+%% @end
+%%--------------------------------------------------------------------
+-spec async_send_cb(Name, Nf, Opts, ReplyPid, Cb) -> Result when
+      Name :: term(), Nf :: notification(), Opts :: list(),
+      ReplyPid :: pid(), Cb :: callback(),
+      Result :: async_send_result().
+async_send_cb(Name, Nf0, Opts, ReplyPid, Cb) when is_list(Nf0),
+                                                  is_list(Opts),
+                                                  is_pid(ReplyPid),
+                                                  is_function(Cb, 3) ->
+    _ = ?LOG_DEBUG("async_send_cb: Name: ~p, Nf0: ~p~n"
+                   "Opts: ~p, ReplyPid: ~p, Cb: ~p",
+                   [Name, Nf0, Opts, ReplyPid, Cb]),
+    case try_normalize_nf(Nf0) of
+        {ok, Nf} ->
+            _ = ?LOG_DEBUG("async_send_cb: Normalized nf: ~p", [Nf]),
+            gcm_erl_session:async_send_cb(Name, Nf, Opts, ReplyPid, Cb);
+        Error ->
+            Error
+    end.
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
 init(Opts) ->
-    _ = lager:info("Starting service with opts: ~p", [Opts]),
+    _ = ?LOG_INFO("Starting service with opts: ~p", [Opts]),
     RestartStrategy    = one_for_one,
     MaxRestarts        = 10, % If there are more than this many restarts
     MaxTimeBetRestarts = 60, % In this many seconds, then terminate supervisor
@@ -210,46 +287,125 @@ init(Opts) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-send(Mode, Name, Notification, Opts) when is_list(Notification), is_list(Opts) ->
-    To = get_destination(Notification),
-    Data = get_data(Notification),
-    NewNotification = store_props([To, Data], Notification),
-    case Mode of
-        sync -> gcm_erl_session:send(Name, NewNotification, Opts);
-        async -> gcm_erl_session:async_send(Name, NewNotification, Opts)
+send(Mode, Name, Nf0, Opts) when (Mode == sync orelse Mode == async) andalso
+                                 is_list(Nf0) andalso is_list(Opts) ->
+    _ = ?LOG_DEBUG("send/4: Mode: ~p, Name: ~p, Nf: ~p, Opts: ~p",
+                   [Mode, Name, Nf0, Opts]),
+    case try_normalize_nf(Nf0) of
+        {ok, Nf} ->
+            (send_fun(Mode))(Name, Nf, Opts);
+        Error ->
+            Error
     end.
 
-get_data(Notification) ->
-    Data = case {sc_util:val(data, Notification),
-                 sc_util:val(alert, Notification)} of
-        {D, _} when is_list(D) ->
-            D;
-        {undefined, Alert} when is_list(Alert); is_binary(Alert) ->
-            [{<<"alert">>, sc_util:to_bin(Alert)}];
-        {_, _} ->
-            throw({missing_data_or_alert, Notification})
-    end,
-    {data, Data}.
+%%--------------------------------------------------------------------
+send_fun(sync)  -> fun gcm_erl_session:send/3;
+send_fun(async) -> fun gcm_erl_session:async_send/3.
 
-get_destination(Notification) ->
-    case {sc_util:val(id, Notification), sc_util:val(token, Notification)} of
-        {Id, _} when is_list(Id); is_binary(Id) ->
-            {id, Id};
-        {_, Id} when is_list(Id); is_binary(Id) ->
-            {id, Id};
-        {undefined, undefined} ->
-            RIs = case sc_util:val(registration_ids, Notification) of
-                [RegId|_] = L when is_binary(RegId); is_list(RegId) ->
-                    L;
-                _ ->
-                    throw({missing_token_or_regid, Notification})
-            end,
-            {registration_ids, RIs};
+%%--------------------------------------------------------------------
+try_normalize_nf(Nf) ->
+    try
+        {ok, normalize_nf(Nf)}
+    catch
+        throw:{missing_one_of, {_Nf, Keys}}=Exc ->
+            _ = ?LOG_ERROR("async_send_cb: exception ~p", [Exc]),
+            {error, {missing_one_of_keys, Keys}}
+    end.
+
+%%--------------------------------------------------------------------
+normalize_nf(Nf) ->
+    normalize_alert_data(normalize_destination(Nf)).
+
+%%--------------------------------------------------------------------
+normalize_alert_data(Nf) ->
+    find_first(Nf, [fun normalize_data/1,
+                    fun normalize_alert/1,
+                    missing_key_error_fun([data, alert])]).
+
+%%--------------------------------------------------------------------
+normalize_destination(Nf) ->
+    find_first(Nf, [fun normalize_id/1,
+                    fun normalize_token/1,
+                    fun normalize_reg_ids/1,
+                    missing_key_error_fun([id, token, registration_ids])]).
+
+%%--------------------------------------------------------------------
+normalize_alert(Nf) ->
+    case sc_util:val(alert, Nf) of
+        Alert when is_binary(Alert) orelse is_list(Alert) ->
+            keystore(data, 1, keydelete(alert, 1, Nf),
+                     {data, [{alert, sc_util:to_bin(Alert)}]});
+        undefined ->
+            false
+    end.
+
+%%--------------------------------------------------------------------
+normalize_data(Nf) ->
+    case sc_util:val(data, Nf) of
+        Data when is_list(Data) ->
+            keydelete(alert, 1, Nf);
+        undefined ->
+            false
+    end.
+
+%%--------------------------------------------------------------------
+normalize_id(Nf) ->
+    case sc_util:val(id, Nf) of
+        Id when is_binary(Id) orelse is_list(Id) ->
+            keystore(id, 1,
+                     delete_props([token, receivers, registration_ids], Nf),
+                     {id, sc_util:to_bin(Id)});
+        undefined ->
+            false
+    end.
+
+%%--------------------------------------------------------------------
+normalize_token(Nf) ->
+    case sc_util:val(token, Nf) of
+        Id when is_binary(Id) orelse is_list(Id) ->
+            keystore(id, 1,
+                     delete_props([token, receivers, registration_ids], Nf),
+                     {id, sc_util:to_bin(Id)});
+        undefined ->
+            false
+    end.
+
+%%--------------------------------------------------------------------
+normalize_reg_ids(Nf) ->
+    case sc_util:val(registration_ids, Nf) of
+        [RId|_] when is_binary(RId) orelse is_list(RId) ->
+            delete_props([id, token, receivers], Nf);
         _ ->
-            throw({missing_token_or_regid, Notification})
+            false
     end.
 
-store_props(FromProps, ToProps) ->
-    lists:foldl(fun({K, _V} = KV, Acc) -> lists:keystore(K, 1, Acc, KV) end,
-                ToProps, FromProps).
+%%--------------------------------------------------------------------
+missing_key_error_fun(Keys) ->
+    fun(Nf) ->
+        throw({missing_one_of, {Nf, Keys}})
+    end.
+
+%%--------------------------------------------------------------------
+delete_props(Keys, Props) ->
+    lists:foldl(fun(K, Acc) -> lists:keydelete(K, 1, Acc) end, Props, Keys).
+
+%%--------------------------------------------------------------------
+%% Preds is list of fun/1.
+%% Each fun takes Data and returns either false or transformed Data.
+find_first(Data, Preds) when is_list(Preds) ->
+    _ = ?LOG_DEBUG("find_first/2: Preds: ~p~nData: ~p", [Preds, Data]),
+    try
+        lists:foldl(fun(Pred, _Acc) when is_function(Pred, 1) ->
+                            case Pred(Data) of
+                                false ->
+                                    false;
+                                X ->
+                                    throw({found, X})
+                            end
+                    end, false, Preds)
+    catch
+        throw:{found, X} ->
+            X
+    end.
+
+

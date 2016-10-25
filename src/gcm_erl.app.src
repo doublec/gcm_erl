@@ -13,6 +13,7 @@
                 inets,
                 mnesia,
                 lager,
+                uuid,
                 sc_push_lib,
                 sc_util
             ]},
