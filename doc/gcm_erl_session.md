@@ -26,7 +26,7 @@ they are registered) names within the node.
 
 ```
    Nf = [{id, sc_util:to_bin(RegId)},
-                   {data, [{alert, sc_util:to_bin(Msg)}]}],
+         {data, [{alert, sc_util:to_bin(Msg)}]}],
    {ok, Res} = gcm_erl_session:send('gcm-com.example.MyApp', Nf).
 ```
 
@@ -34,7 +34,7 @@ Note that the above notification is semantically identical to
 
 ```
    Nf = [{registration_ids, [sc_util:to_bin(RegId)]},
-                   {data, [{alert, sc_util:to_bin(Msg)]}].
+         {data, [{alert, sc_util:to_bin(Msg)]}].
 ```
 
 It follows that you can send to multiple registration ids:
