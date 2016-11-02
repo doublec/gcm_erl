@@ -370,16 +370,27 @@ stop(SvrRef) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Nf) -> Result when
       SvrRef :: term(), Nf :: notification(),
-      Result :: {ok, {UUID, Response}} | {error, Reason},
+      Result :: {ok, {success, {UUID, Response}}} | {error, Reason},
       UUID :: uuid(), Response :: term(), Reason :: term().
 send(SvrRef, Nf) when is_list(Nf) ->
     send(SvrRef, Nf, []).
 
 %%--------------------------------------------------------------------
 %% @doc Send a notification specified by `Nf' via
-%% `SvrRef', with options `Opts' (currently unused).
+%% `SvrRef', with options `Opts'.
 %%
 %% For JSON format, see Google GCM documentation.
+%%
+%% == Opts ==
+%%
+%% <dl>
+%%  <dt>`http_headers :: [{string(), string()}]'</dt>
+%%  <dd>Extra HTTP headers to include with a request. These will be merged
+%%  with any internally-generated headers, and will override internally
+%%  generated headers, so caution is advised. Avoiding the Authorization
+%%  header is recommended. Currently only used
+%%  for testing with the GCM simulator.</dd>
+%% </dl>
 %%
 %% @see gcm_json:make_notification/1.
 %% @see gcm_json:notification/0.
@@ -387,8 +398,8 @@ send(SvrRef, Nf) when is_list(Nf) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Nf, Opts) -> Result when
       SvrRef :: term(), Nf :: notification(), Opts :: list(),
-      Result :: {ok, {UUID, Response}} | {error, Reason}, UUID :: uuid(),
-      Response :: term(), Reason :: term().
+      Result :: {ok, {success, {UUID, Response}}} |
+      {error, Reason}, UUID :: uuid(), Response :: term(), Reason :: term().
 send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
     Req = #send_req{mode      = sync,
                     nf        = Nf,
@@ -749,13 +760,13 @@ dispatch_req(#gcm_req{uuid=UUID,
     end.
 
 %%--------------------------------------------------------------------
-do_send(#send_req{nf=Nf}=Req, From, #?S{}=St) ->
+do_send(#send_req{}=Req, From, #?S{}=St) ->
     case try_make_gcm_req(Req, From, 1, St) of
         {ok, GR} ->
             dispatch_req(GR, St#?S.httpc_opts, St#?S.uri);
         {error, Reason} = Error ->
             _ = ?LOG_ERROR("Bad GCM notification: ~p, error: ~p",
-                           [Nf, Reason]),
+                           [Req#send_req.nf, Reason]),
             Error
     end.
 
@@ -1238,7 +1249,7 @@ try_make_gcm_req(#send_req{}=SR, From, NumAttempts, #?S{}=St) ->
     try
         {ok, make_gcm_req(SR, From, NumAttempts, St)}
     catch
-        _:Error ->
+        throw:Error ->
             {error, Error}
     end.
 
@@ -1248,17 +1259,39 @@ try_make_gcm_req(#send_req{}=SR, From, NumAttempts, #?S{}=St) ->
       SR :: send_req(), From :: {pid(), any()},
       NumAttempts :: non_neg_integer(),
       St :: state(), Result :: gcm_req().
-make_gcm_req(#send_req{nf=Nf}=SR, From, NumAttempts,
+make_gcm_req(#send_req{nf=Nf, opts=SendOpts}=SR, From, NumAttempts,
              #?S{ssl_opts=SslOpts,
                  auth_value=AuthValue,
                  uri=URI,
                  httpc_opts=HTTPCOpts,
                  retry_interval=RetrySecs}) ->
     {HTTPOpts, ReqOpts} = make_req_options(self(), SslOpts),
-    Headers = [{"Authorization", AuthValue}],
+    SendHeaders = get_send_headers(SendOpts),
+    Headers = merge_headers(SendHeaders, [{"Authorization", AuthValue}]),
     Req = make_json_req(URI, Headers, Nf),
     make_gcm_req(SR, From, Req, HTTPOpts, HTTPCOpts,
                  ReqOpts, NumAttempts, RetrySecs).
+
+%%--------------------------------------------------------------------
+merge_headers(Headers1, Headers2) ->
+    lists:keymerge(1, lists:usort(normalize_headers(Headers1)),
+                   lists:usort(normalize_headers(Headers2))).
+
+%%--------------------------------------------------------------------
+get_send_headers(Opts) ->
+    case pv(http_headers, Opts, []) of
+        [_|_] = L ->
+            true = lists:all(fun({K, V}) -> is_list(K) andalso is_list(V);
+                                (X) -> throw({invalid_header_value, X})
+                             end, L),
+            L;
+        [] ->
+            []
+    end.
+
+%%--------------------------------------------------------------------
+normalize_headers(Headers) ->
+    lists:map(fun({K, V}) -> {string:to_lower(K), V} end, Headers).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -1529,7 +1562,7 @@ handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
     UUID = Req#gcm_req.uuid,
     case process_gcm_result(Req, Result) of
         {{success, {_UUID, _Props}}=Success, _Hdrs} ->
-            Success;
+            {ok, Success};
         {{results, ErrorList}, Hdrs} ->
             PErrors = process_errors(Req, ErrorList),
             RegIds = maybe_reschedule(SvrRef, Req, Hdrs, PErrors),

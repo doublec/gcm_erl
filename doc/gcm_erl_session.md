@@ -126,7 +126,7 @@ uuid() = <a href="#type-bstring">bstring()</a>
 <code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#async_send_cb-5">async_send_cb/5</a></td><td>Asynchronously sends a notification specified by
 <code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by <code>Nf</code> via
 <code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Send a notification specified by <code>Nf</code> via
-<code>SvrRef</code>, with options <code>Opts</code> (currently unused).</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr></table>
+<code>SvrRef</code>, with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr></table>
 
 
 <a name="functions"></a>
@@ -216,7 +216,7 @@ Its function spec is</p><p></p><pre>    -spec callback(NfPL, Req, Resp) -> any()
 send(SvrRef, Nf) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by `Nf` via
 `SvrRef`.  For JSON format, see
@@ -233,12 +233,31 @@ __See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [
 send(SvrRef, Nf, Opts) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by `Nf` via
-`SvrRef`, with options `Opts` (currently unused).
+`SvrRef`, with options `Opts`.
 
 For JSON format, see Google GCM documentation.
+
+
+### <a name="Opts">Opts</a> ###
+
+
+
+<dt><code>http_headers :: [{string(), string()}]</code></dt>
+
+
+
+
+<dd>Extra HTTP headers to include with a request. These will be merged
+with any internally-generated headers, and will override internally
+generated headers, so caution is advised. Avoiding the Authorization
+header is recommended. Currently only used
+for testing with the GCM simulator.</dd>
+
+
+
 
 __See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [gcm_json:notification/0](gcm_json.md#notification-0).
 

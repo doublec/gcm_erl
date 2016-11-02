@@ -5,164 +5,30 @@
 -module(gcm_erl_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include("gcm_erl_test_support.hrl").
+
+-import(gcm_erl_test_support,
+        [
+         get_sim_config/2,
+         multi_store/2,
+         req_val/2,
+         pv/2,
+         pv/3,
+         start_gcm_sim/3
+        ]).
 
 -compile(export_all).
-
--define(assertMsg(Cond, Fmt, Args),
-    case (Cond) of
-        true ->
-            ok;
-        false ->
-            ct:fail("Assertion failed: ~p~n" ++ Fmt, [??Cond] ++ Args)
-    end
-).
-
--define(assert(Cond), ?assertMsg((Cond), "", [])).
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
-%% Function: suite() -> Info
-%%
-%% Info = [tuple()]
-%%   List of key/value pairs.
-%%
-%% Description: Returns list of tuples to set default properties
-%%              for the suite.
-%%
-%% Note: The suite/0 function is only meant to be used to return
-%% default data values, not perform any other operations.
-%%--------------------------------------------------------------------
-suite() -> [
-        {timetrap, {seconds, 30}},
-        {require, sessions},
-        {require, registration_id}
+all() ->
+    [
+        {group, session}
     ].
 
-%%--------------------------------------------------------------------
-%% Function: init_per_suite(Config0) ->
-%%               Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%%
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Reason = term()
-%%   The reason for skipping the suite.
-%%
-%% Description: Initialization before the suite.
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
-%%--------------------------------------------------------------------
-init_per_suite(Config) ->
-    % ct:get_config(sessions) -> [Session].
-    % Session = {session, [{name, atom()}, {certfile, string()}]}.
-    Sessions = ct:get_config(sessions),
-    ct:pal("Sessions: ~p~n", [Sessions]),
-    RegId = ct:get_config(registration_id),
-    ct:pal("registration_id: ~p~n", [registration_id]),
-    {ok, _} = application:ensure_all_started(ssl),
-    {ok, _} = application:ensure_all_started(inets),
-
-    [{registration_id, RegId}, {sessions, Sessions} | Config].
-
-%%--------------------------------------------------------------------
-%% Function: end_per_suite(Config0) -> void() | {save_config,Config1}
-%%
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%%
-%% Description: Cleanup after the suite.
-%%--------------------------------------------------------------------
-end_per_suite(_Config) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% Function: init_per_group(GroupName, Config0) ->
-%%               Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%%
-%% GroupName = atom()
-%%   Name of the test case group that is about to run.
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding configuration data for the group.
-%% Reason = term()
-%%   The reason for skipping all test cases and subgroups in the group.
-%%
-%% Description: Initialization before each test case group.
-%%--------------------------------------------------------------------
-init_per_group(_GroupName, Config) ->
-    Config.
-
-%%--------------------------------------------------------------------
-%% Function: end_per_group(GroupName, Config0) ->
-%%               void() | {save_config,Config1}
-%%
-%% GroupName = atom()
-%%   Name of the test case group that is finished.
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding configuration data for the group.
-%%
-%% Description: Cleanup after each test case group.
-%%--------------------------------------------------------------------
-end_per_group(_GroupName, _Config) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% Function: init_per_testcase(TestCase, Config0) ->
-%%               Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%%
-%% TestCase = atom()
-%%   Name of the test case that is about to run.
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Reason = term()
-%%   The reason for skipping the test case.
-%%
-%% Description: Initialization before each test case.
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
-%%--------------------------------------------------------------------
-init_per_testcase(_Case, Config) ->
-    init_per_testcase_common(Config).
-
-%%--------------------------------------------------------------------
-%% Function: end_per_testcase(TestCase, Config0) ->
-%%               void() | {save_config,Config1} | {fail,Reason}
-%%
-%% TestCase = atom()
-%%   Name of the test case that is finished.
-%% Config0 = Config1 = [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Reason = term()
-%%   The reason for failing the test case.
-%%
-%% Description: Cleanup after each test case.
-%%--------------------------------------------------------------------
-end_per_testcase(_Case, Config) ->
-    end_per_testcase_common(Config).
-
-%%--------------------------------------------------------------------
-%% Function: groups() -> [Group]
-%%
-%% Group = {GroupName,Properties,GroupsAndTestCases}
-%% GroupName = atom()
-%%   The name of the group.
-%% Properties = [parallel | sequence | Shuffle | {RepeatType,N}]
-%%   Group properties that may be combined.
-%% GroupsAndTestCases = [Group | {group,GroupName} | TestCase]
-%% TestCase = atom()
-%%   The name of a test case.
-%% Shuffle = shuffle | {shuffle,Seed}
-%%   To get cases executed in random order.
-%% Seed = {integer(),integer(),integer()}
-%% RepeatType = repeat | repeat_until_all_ok | repeat_until_all_fail |
-%%              repeat_until_any_ok | repeat_until_any_fail
-%%   To get execution of cases repeated.
-%% N = integer() | forever
-%%
-%% Description: Returns a list of test case group definitions.
 %%--------------------------------------------------------------------
 groups() ->
     [
@@ -177,148 +43,278 @@ groups() ->
             [
                 send_msg_test,
                 send_msg_via_api_test,
-                subscription_test
+                async_send_msg_test,
+                async_send_msg_via_api_test
             ]
         }
     ].
 
 %%--------------------------------------------------------------------
-%% Function: all() -> GroupsAndTestCases | {skip,Reason}
-%%
-%% GroupsAndTestCases = [{group,GroupName} | TestCase]
-%% GroupName = atom()
-%%   Name of a test case group.
-%% TestCase = atom()
-%%   Name of a test case.
-%% Reason = term()
-%%   The reason for skipping all groups and test cases.
-%%
-%% Description: Returns the list of groups and test cases that
-%%              are to be executed.
-%%--------------------------------------------------------------------
-all() ->
-    [
-        {group, session}
+suite() -> [
+        {timetrap, {seconds, 30}},
+        {require, gcm_sim_node},
+        {require, gcm_sim_config},
+        {require, gcm_erl},
+        {require, registration_id}
     ].
+
+%%--------------------------------------------------------------------
+init_per_suite(Config) ->
+    DataDir = req_val(data_dir, Config), % Standard CT variable
+    MnesiaDir = filename:join(DataDir, "db"),
+    ok = filelib:ensure_dir(MnesiaDir),
+    application:set_env(mnesia, dir, MnesiaDir),
+
+    Cookie = "scpf",
+    {GcmSimNode, GcmSimCfg} = get_sim_config(gcm_sim_config, Config),
+    ct:log("GCM simulator node: ~p", [GcmSimNode]),
+    ct:log("GCM simulator config: ~p", [GcmSimCfg]),
+
+    %% Start GCM simulator
+    ct:log("Starting GCM simulator"),
+    {ok, GcmSimStartedApps} = start_gcm_sim(GcmSimNode, GcmSimCfg, Cookie),
+    ct:log("Stared GCM simulator apps ~p", [GcmSimStartedApps]),
+
+    GCMConfig = ct:get_config(gcm_erl),
+    Service = req_val(service, GCMConfig),
+    ct:pal("Service: ~p", [Service]),
+    Sessions = req_val(sessions, GCMConfig),
+    ct:pal("Sessions: ~p", [Sessions]),
+    RegId = ct:get_config(registration_id),
+    ct:pal("registration_id: ~p", [registration_id]),
+    Started = start_per_suite_apps(Config),
+    ct:pal("init_per_suite: Started apps=~p", [Started]),
+    multi_store(Config, [{gcm_sim_started_apps, GcmSimStartedApps},
+                         {suite_started_apps, Started},
+                         {gcm_sim_node, GcmSimNode},
+                         {gcm_sim_config, GcmSimCfg},
+                         {gcm_service, Service},
+                         {gcm_sessions, Sessions},
+                         {registration_id, RegId}]
+               ).
+
+%%--------------------------------------------------------------------
+end_per_suite(Config) ->
+    % We don't care about sim_started_apps because they are on
+    % a slave node that will get shut down.
+    Apps = req_val(suite_started_apps, Config),
+    [application:stop(App) || App <- Apps],
+    ok.
+
+%%--------------------------------------------------------------------
+init_per_group(_GroupName, Config) ->
+    Config.
+
+%%--------------------------------------------------------------------
+end_per_group(_GroupName, _Config) ->
+    ok.
+
+%%--------------------------------------------------------------------
+init_per_testcase(_Case, Config) ->
+    init_per_testcase_common(Config).
+
+%%--------------------------------------------------------------------
+end_per_testcase(_Case, Config) ->
+    end_per_testcase_common(Config).
 
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-% t_1(doc) -> ["t/1 should return 0 on an empty list"];
-% t_1(suite) -> [];
-% t_1(Config) when is_list(Config)  ->
-%     ?line 0 = t:foo([]),
-%     ok.
-
+%%--------------------------------------------------------------------
 send_msg_test(doc) ->
     ["gcm_erl_session:send/2 should send a message to GCM"];
 send_msg_test(suite) ->
     [];
 send_msg_test(Config) ->
-    RegId = value(registration_id, Config),
+    RegId = req_val(registration_id, Config),
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "message_id:1000"}],
     [
         begin
-                Name = value(name, Session),
+                Name = req_val(name, Session),
                 GcmOpts = make_opts(RegId, "Hello, world!"),
-                {ok, ReqId} = gcm_erl_session:send(Name, GcmOpts),
-                ct:pal("Sent notification, req id = ~p~n", [ReqId])
-        end || Session <- value(sessions, Config)
+                Opts = [{http_headers, SimHdrs}],
+                ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                       [Name, GcmOpts, Opts]),
+                {ok, {UUID, Props}} = gcm_erl_session:send(Name, GcmOpts, Opts),
+                ct:pal("Sent notification, uuid = ~s, props = ~p",
+                       [UUID, Props])
+        end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
 
+%%--------------------------------------------------------------------
 send_msg_via_api_test(doc) ->
     ["gcm_erl:send/2 should send a message to GCM"];
 send_msg_via_api_test(suite) ->
     [];
 send_msg_via_api_test(Config) ->
-    RegId = value(registration_id, Config),
+    RegId = req_val(registration_id, Config),
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "message_id:1000"}],
     [
         begin
-                Name = value(name, Session),
+                Name = req_val(name, Session),
                 GcmOpts = make_opts(RegId, "Hello, world!"),
-                {ok, ReqId} = gcm_erl:send(Name, GcmOpts),
-                ct:pal("Sent notification via API, req id = ~p~n", [ReqId])
-        end || Session <- value(sessions, Config)
+                Opts = [{http_headers, SimHdrs}],
+                ct:pal("Call gcm_erl:send(~p, ~p, ~p)",
+                       [Name, GcmOpts, Opts]),
+                {ok, {UUID, Props}} = gcm_erl:send(Name, GcmOpts, Opts),
+                ct:pal("Sent notification via API, uuid = ~p, props = ~p",
+                       [UUID, Props])
+        end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
 
-subscription_test(doc) ->
-    ["gcm_erl_session:send/3 should send a message to GCM and deliver results to self"];
-subscription_test(suite) ->
+%%--------------------------------------------------------------------
+async_send_msg_test(doc) ->
+    ["gcm_erl_session:async_send/3 should send a message to GCM ",
+     "asynchronously, and deliver async results to self"];
+async_send_msg_test(suite) ->
     [];
-subscription_test(Config) ->
-    RegId = value(registration_id, Config),
+async_send_msg_test(Config) ->
+    RegId = req_val(registration_id, Config),
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "message_id:1000"}],
     [
         begin
-            Name = value(name, Session),
+            Name = req_val(name, Session),
             GcmOpts = make_opts(RegId, "Hello, world!"),
-            Opts = [{callback, {self(), [progress,completion]}}],
-            {ok, ReqId} = gcm_erl_session:send(Name, GcmOpts, Opts),
-            ct:pal("Sent notification, req id = ~p~n", [ReqId]),
-            subs_receive_loop(ReqId)
-        end || Session <- value(sessions, Config)
+            Opts = [{http_headers, SimHdrs}],
+            {ok, {submitted, UUID}} = gcm_erl_session:async_send(Name, GcmOpts,
+                                                                 Opts),
+            ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
+            async_receive_loop(UUID)
+        end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
 
-subs_receive_loop(Ref) ->
+%%--------------------------------------------------------------------
+async_send_msg_via_api_test(doc) ->
+    ["gcm_erl:async_send/3 should send a message to GCM ",
+     "asynchronously, and deliver async results to self"];
+async_send_msg_via_api_test(suite) ->
+    [];
+async_send_msg_via_api_test(Config) ->
+    RegId = req_val(registration_id, Config),
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "message_id:1000"}],
+    [
+        begin
+            Name = req_val(name, Session),
+            GcmOpts = make_opts(RegId, "Hello, world!"),
+            Opts = [{http_headers, SimHdrs}],
+            {ok, {submitted, UUID}} = gcm_erl:async_send(Name, GcmOpts, Opts),
+            ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
+            async_receive_loop(UUID)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+async_receive_loop(UUID) ->
     receive
-        {gcm_erl, completion, Ref, Status} ->
-            ct:log("completion: req id ~p -> ~p", [Ref, Status]),
-            ok = Status;
-        {gcm_erl, progress, Ref, Status} ->
-            ct:log("progress: req id ~p -> ~p", [Ref, Status]),
-            subs_receive_loop(Ref)
+        {gcm_response, v1, {UUID, Resp}} ->
+            ct:pal("Received response for uuid ~p: ~p", [UUID, Resp]),
+            assert_success(Resp)
+    after
+        1000 ->
+            ct:fail({error, sim_timeout})
     end.
+
+%%--------------------------------------------------------------------
+assert_success(Resp) ->
+    {ok, {success, {UUID, Props}}} = Resp,
+    UUID = req_val(id, Props),
+    Status = req_val(status, Props),
+    Status = <<"200">>.
 
 %%====================================================================
 %% Internal helper functions
 %%====================================================================
 init_per_testcase_common(Config) ->
-    %(catch end_per_testcase_common(Config)),
-    mnesia:create_schema([node()]),
-    ok = application:set_env(gcm_erl, service, ct:get_config(service)),
-    ok = application:set_env(gcm_erl, sessions, ct:get_config(sessions)),
-    {ok, _} = application:ensure_all_started(gcm_erl),
-    Config.
+    (catch end_per_testcase_common(Config)),
+    ok = mnesia:create_schema([node()]),
+    ok = mnesia:start(),
+    Service = req_val(gcm_service, Config),
+    Sessions = req_val(gcm_sessions, Config),
+    ct:pal("Service: ~p", [Service]),
+    ct:pal("Sessions: ~p", [Sessions]),
+    ok = application:set_env(gcm_erl, service, Service),
+    ok = application:set_env(gcm_erl, sessions, Sessions),
+    {ok, AppList} = application:ensure_all_started(gcm_erl),
+    ct:pal("Started apps: ~p", [AppList]),
+    multi_store(Config, [{started_apps, AppList}]).
 
+%%--------------------------------------------------------------------
 end_per_testcase_common(Config) ->
-    ok = application:stop(gcm_erl),
-    ok = application:stop(sc_push_lib),
-    ok = application:stop(sc_util),
-    ok = application:stop(jsx),
-    stopped = mnesia:stop(),
+    Apps = lists:reverse(pv(started_apps, Config, [])),
+    _ = [ok = application:stop(App) || App <- Apps],
+    mnesia:stop(),
     ok = mnesia:delete_schema([node()]),
-    Config.
+    lists:keydelete(started_apps, 1, Config).
 
-value(Key, Config) ->
-    V = proplists:get_value(Key, Config),
-    ?assertMsg(V =/= undefined, "Required key missing: ~p~n", [Key]),
-    V.
+%%--------------------------------------------------------------------
+start_per_suite_apps(Config) ->
+    Apps = [lager, ssl],
+    set_env(lager, lager_config(Config)),
+    Fun = fun(App, Acc) ->
+                  {ok, L} = application:ensure_all_started(App),
+                  Acc ++ L
+          end,
+    StartedApps = lists:foldl(Fun, [], Apps),
+    lists:usort(StartedApps).
 
+%%--------------------------------------------------------------------
 make_opts(RegId, Msg) ->
     [
         {registration_ids, [sc_util:to_bin(RegId)]}, % Required, all others optional
         {data, [{alert, sc_util:to_bin(Msg)}]}
     ].
 
+%%--------------------------------------------------------------------
+set_env(App, FromEnv) ->
+    [ok = application:set_env(App, K, V) || {K, V} <- FromEnv].
+
 %%====================================================================
 %% Lager support
 %%====================================================================
+%%--------------------------------------------------------------------
 lager_config(Config) ->
-    PrivDir = value(priv_dir, Config), % Standard CT variable
+    PrivDir = req_val(priv_dir, Config), % Standard CT variable
     [
-        %% What handlers to install with what arguments
-        {handlers, [
-                {lager_console_backend, info},
-                {lager_file_backend, [
-                        {filename:join(PrivDir, "error.log"), error, 10485760, "$D0", 5},
-                        {filename:join(PrivDir, "console.log"), info, 10485760, "$D0", 5}
-                    ]
-                }
-            ]},
-        %% Whether to write a crash log, and where. Undefined means no crash logger.
-        {crash_log, filename:join(PrivDir, "crash.log")}
+     {handlers,
+      [
+       {lager_console_backend, debug},
+       {lager_file_backend, [{file, filename:join(PrivDir, "log/error.log")},
+                             {level, error},
+                             {size, 10485760},
+                             {date, "$D0"},
+                             {count, 5}]},
+       {lager_file_backend, [{file, filename:join(PrivDir, "log/console.log")},
+                             {level, debug },
+                             {size, 10485760},
+                             {date, "$D0"},
+                             {count, 5}
+                            ]
+       }
+      ]
+     },
+     %% Whether to write a crash log, and where. Undefined means no crash logger.
+     {crash_log, filename:join(PrivDir, "log/crash.log")},
+     %% Maximum size in bytes of events in the crash log - defaults to 65536
+     {crash_log_msg_size, 65536},
+     %% Maximum size of the crash log in bytes, before its rotated, set
+     %% to 0 to disable rotation - default is 0
+     {crash_log_size, 10485760},
+     %% What time to rotate the crash log - default is no time
+     %% rotation. See the README for a description of this format.
+     {crash_log_date, "$D0"},
+     %% Number of rotated crash logs to keep, 0 means keep only the
+     %% current one - default is 0
+     {crash_log_count, 5},
+     %% Whether to redirect error_logger messages into lager - defaults to true
+     {error_logger_redirect, true}
     ].
-
 

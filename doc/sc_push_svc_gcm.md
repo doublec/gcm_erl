@@ -171,7 +171,7 @@ notification() = <a href="proplists.md#type-proplist">proplists:proplist()</a>
 
 
 <pre><code>
-uuid() = <a href="uuid.md#type-uuid_str">uuid:uuid_str()</a>
+uuid() = <a href="/home/efine/work/sc/open_source/scpf/gcm_erl/_build/default/lib/uuid/doc/uuid.md#type-uuid_str">uuid:uuid_str()</a>
 </code></pre>
 
 <a name="index"></a>
