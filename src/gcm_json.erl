@@ -181,12 +181,25 @@ make_notification(Notification) ->
 %%--------------------------------------------------------------------
 -spec get_req_props(notification()) -> json_term().
 get_req_props(Notification) ->
-    case value(id, Notification) of
+    case get_id_or_to_prop(Notification) of
         undefined ->
             [{<<"registration_ids">>, get_valid_reg_ids(Notification)}];
         RegId ->
             [{<<"to">>, valid_reg_id(RegId)}]
     end ++ [{<<"data">>, required(data, Notification)}].
+
+%%--------------------------------------------------------------------
+get_id_or_to_prop(Notification) ->
+    case {value(id, Notification), value(to, Notification)} of
+        {undefined, undefined} ->
+            undefined;
+        {Id, undefined} ->
+            Id;
+        {undefined, Id} ->
+            Id;
+        {_, _} = Ids ->
+            throw({ambiguous_ids, Ids})
+    end.
 
 %%--------------------------------------------------------------------
 -spec get_opt_props(notification()) -> json_term().

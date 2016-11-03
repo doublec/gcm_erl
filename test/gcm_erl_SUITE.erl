@@ -42,6 +42,7 @@ groups() ->
             [],
             [
                 send_msg_test,
+                send_msg_test_regids,
                 send_msg_via_api_test,
                 async_send_msg_test,
                 async_send_msg_via_api_test
@@ -123,25 +124,25 @@ end_per_testcase(_Case, Config) ->
 
 %%--------------------------------------------------------------------
 send_msg_test(doc) ->
-    ["gcm_erl_session:send/2 should send a message to GCM"];
+    ["gcm_erl_session:send/3 should send a message to GCM"];
 send_msg_test(suite) ->
     [];
 send_msg_test(Config) ->
-    RegId = req_val(registration_id, Config),
-    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
-               {"X-GCMSimulator-Results", "message_id:1000"}],
-    [
-        begin
-                Name = req_val(name, Session),
-                GcmOpts = make_opts(RegId, "Hello, world!"),
-                Opts = [{http_headers, SimHdrs}],
-                ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
-                       [Name, GcmOpts, Opts]),
-                {ok, {UUID, Props}} = gcm_erl_session:send(Name, GcmOpts, Opts),
-                ct:pal("Sent notification, uuid = ~s, props = ~p",
-                       [UUID, Props])
-        end || Session <- req_val(gcm_sessions, Config)
-    ],
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    GcmOpts = make_opts(RegId, "Hello, world!"),
+    do_send_msg_test(GcmOpts, Config),
+    ok.
+
+%%--------------------------------------------------------------------
+send_msg_test_regids(doc) ->
+    ["gcm_erl_session:send/3 should send a message to GCM",
+     "using 'registration_ids' list"];
+send_msg_test_regids(suite) ->
+    [];
+send_msg_test_regids(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    GcmOpts = make_opts([RegId], "Hello, world!"),
+    do_send_msg_test(GcmOpts, Config),
     ok.
 
 %%--------------------------------------------------------------------
@@ -150,7 +151,7 @@ send_msg_via_api_test(doc) ->
 send_msg_via_api_test(suite) ->
     [];
 send_msg_via_api_test(Config) ->
-    RegId = req_val(registration_id, Config),
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
     SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
                {"X-GCMSimulator-Results", "message_id:1000"}],
     [
@@ -174,7 +175,7 @@ async_send_msg_test(doc) ->
 async_send_msg_test(suite) ->
     [];
 async_send_msg_test(Config) ->
-    RegId = req_val(registration_id, Config),
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
     SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
                {"X-GCMSimulator-Results", "message_id:1000"}],
     [
@@ -197,7 +198,7 @@ async_send_msg_via_api_test(doc) ->
 async_send_msg_via_api_test(suite) ->
     [];
 async_send_msg_via_api_test(Config) ->
-    RegId = req_val(registration_id, Config),
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
     SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
                {"X-GCMSimulator-Results", "message_id:1000"}],
     [
@@ -267,10 +268,31 @@ start_per_suite_apps(Config) ->
     lists:usort(StartedApps).
 
 %%--------------------------------------------------------------------
-make_opts(RegId, Msg) ->
+make_opts([<<_/binary>>|_] = RegIds, Msg) ->
     [
-        {registration_ids, [sc_util:to_bin(RegId)]}, % Required, all others optional
+        {registration_ids, [sc_util:to_bin(RegId) || RegId <- RegIds]},
         {data, [{alert, sc_util:to_bin(Msg)}]}
+    ];
+make_opts(<<RegId/binary>>, Msg) ->
+    [
+        {to, RegId},
+        {data, [{alert, sc_util:to_bin(Msg)}]}
+    ].
+
+%%--------------------------------------------------------------------
+do_send_msg_test(GcmOpts, Config) ->
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "message_id:1000"}],
+    [
+        begin
+                Name = req_val(name, Session),
+                Opts = [{http_headers, SimHdrs}],
+                ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                       [Name, GcmOpts, Opts]),
+                {ok, {UUID, Props}} = gcm_erl_session:send(Name, GcmOpts, Opts),
+                ct:pal("Sent notification, uuid = ~s, props = ~p",
+                       [UUID, Props])
+        end || Session <- req_val(gcm_sessions, Config)
     ].
 
 %%--------------------------------------------------------------------
