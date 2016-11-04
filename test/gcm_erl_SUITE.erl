@@ -10,11 +10,14 @@
 -import(gcm_erl_test_support,
         [
          get_sim_config/2,
+         is_uuid_str/1,
+         make_uuid/0,
          multi_store/2,
          req_val/2,
          pv/2,
          pv/3,
-         start_gcm_sim/3
+         start_gcm_sim/3,
+         stop_gcm_sim/1
         ]).
 
 -compile(export_all).
@@ -41,11 +44,19 @@ groups() ->
             clients,
             [],
             [
+                get_state_test,
                 send_msg_test,
-                send_msg_test_regids,
+                send_msg_uuid_test,
+                send_msg_regids_test,
                 send_msg_via_api_test,
                 async_send_msg_test,
-                async_send_msg_via_api_test
+                async_send_msg_cb_test,
+                async_send_msg_via_api_test,
+                unavailable_test,
+                http_error_test,
+                auth_error_test,
+                bad_json_test,
+                missing_reg_test
             ]
         }
     ].
@@ -66,15 +77,7 @@ init_per_suite(Config) ->
     ok = filelib:ensure_dir(MnesiaDir),
     application:set_env(mnesia, dir, MnesiaDir),
 
-    Cookie = "scpf",
-    {GcmSimNode, GcmSimCfg} = get_sim_config(gcm_sim_config, Config),
-    ct:log("GCM simulator node: ~p", [GcmSimNode]),
-    ct:log("GCM simulator config: ~p", [GcmSimCfg]),
-
-    %% Start GCM simulator
-    ct:log("Starting GCM simulator"),
-    {ok, GcmSimStartedApps} = start_gcm_sim(GcmSimNode, GcmSimCfg, Cookie),
-    ct:log("Stared GCM simulator apps ~p", [GcmSimStartedApps]),
+    {ok, {GcmSimNode, GcmSimStartedApps, GcmSimCfg}} = start_simulator(Config),
 
     GCMConfig = ct:get_config(gcm_erl),
     Service = req_val(service, GCMConfig),
@@ -123,47 +126,63 @@ end_per_testcase(_Case, Config) ->
 %%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
-send_msg_test(doc) ->
-    ["gcm_erl_session:send/3 should send a message to GCM"];
-send_msg_test(suite) ->
-    [];
-send_msg_test(Config) ->
-    RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    GcmOpts = make_opts(RegId, "Hello, world!"),
-    do_send_msg_test(GcmOpts, Config),
+get_state_test(doc) -> ["Test gcm_erl_session:get_state/1"];
+get_state_test(Config) ->
+    [
+        begin
+                Name = req_val(name, Session),
+                ct:pal("Call gcm_erl_session:get_state(~p)", [Name]),
+                State = gcm_erl_session:get_state(Name),
+                ct:pal("Got state: ~p", [State]),
+                true = is_tuple(State)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
     ok.
 
 %%--------------------------------------------------------------------
-send_msg_test_regids(doc) ->
+send_msg_test(doc) ->
+    ["gcm_erl_session:send/3 should send a message to GCM"];
+send_msg_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    Nf = make_nf(RegId, "send_msg_test"),
+    do_send_msg_test(Nf, Config),
+    ok.
+
+%%--------------------------------------------------------------------
+send_msg_uuid_test(doc) ->
+    ["gcm_erl_session:send/3 should send a message to GCM"];
+send_msg_uuid_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    Nf = [{uuid, make_uuid()} | make_nf(RegId, "send_msg_uuid_test")],
+    do_send_msg_test(Nf, Config),
+    ok.
+
+%%--------------------------------------------------------------------
+send_msg_regids_test(doc) ->
     ["gcm_erl_session:send/3 should send a message to GCM",
      "using 'registration_ids' list"];
-send_msg_test_regids(suite) ->
-    [];
-send_msg_test_regids(Config) ->
+send_msg_regids_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    GcmOpts = make_opts([RegId], "Hello, world!"),
-    do_send_msg_test(GcmOpts, Config),
+    Nf = make_nf([RegId], "send_msg_regids_test"),
+    do_send_msg_test(Nf, Config),
     ok.
 
 %%--------------------------------------------------------------------
 send_msg_via_api_test(doc) ->
-    ["gcm_erl:send/2 should send a message to GCM"];
-send_msg_via_api_test(suite) ->
-    [];
+    ["gcm_erl:send/3 should send a message to GCM"];
 send_msg_via_api_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
-               {"X-GCMSimulator-Results", "message_id:1000"}],
+    Nf = make_nf(RegId, "send_msg_via_api_test"),
+    Opts = make_opts(Nf),
     [
         begin
                 Name = req_val(name, Session),
-                GcmOpts = make_opts(RegId, "Hello, world!"),
-                Opts = [{http_headers, SimHdrs}],
-                ct:pal("Call gcm_erl:send(~p, ~p, ~p)",
-                       [Name, GcmOpts, Opts]),
-                {ok, {UUID, Props}} = gcm_erl:send(Name, GcmOpts, Opts),
-                ct:pal("Sent notification via API, uuid = ~p, props = ~p",
-                       [UUID, Props])
+                ct:pal("Call gcm_erl:send(~p, ~p, ~p)", [Name, Nf, Opts]),
+                Result = gcm_erl:send(Name, Nf, Opts),
+                ct:pal("Got result: ~p", [Result]),
+                {ok, {success, {UUID, Props}}} = Result,
+                ct:pal("Success, uuid = ~p, props = ~p", [UUID, Props]),
+                true = is_uuid_str(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
@@ -172,20 +191,50 @@ send_msg_via_api_test(Config) ->
 async_send_msg_test(doc) ->
     ["gcm_erl_session:async_send/3 should send a message to GCM ",
      "asynchronously, and deliver async results to self"];
-async_send_msg_test(suite) ->
-    [];
 async_send_msg_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
-               {"X-GCMSimulator-Results", "message_id:1000"}],
+    Nf = make_nf(RegId, "async_send_msg_test"),
+    Opts = make_opts(Nf),
     [
         begin
             Name = req_val(name, Session),
-            GcmOpts = make_opts(RegId, "Hello, world!"),
-            Opts = [{http_headers, SimHdrs}],
-            {ok, {submitted, UUID}} = gcm_erl_session:async_send(Name, GcmOpts,
-                                                                 Opts),
+            ct:pal("Call gcm_erl_session:async_send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:async_send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {ok, {submitted, UUID}} = Result,
             ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
+            true = is_uuid_str(UUID),
+            async_receive_loop(UUID)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+async_send_msg_cb_test(doc) ->
+    ["gcm_erl_session:async_send_cb/5 should send a message to GCM ",
+     "asynchronously, and deliver async results to self"];
+async_send_msg_cb_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    Nf = make_nf(RegId, "async_send_msg_cb_test"),
+    Opts = make_opts(Nf),
+    Pid = self(),
+    Cb = fun(NfPL, Req, Resp) ->
+                 ct:pal("Callback: nf=~p, req=~p, resp=~p",
+                        [NfPL, Req, Resp]),
+                 UUID = req_val(uuid, Req),
+                 Pid ! {gcm_response, v1, {UUID, Resp}}
+         end,
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:async_send_cb(~p, ~p, ~p, ~p, _)",
+                   [Name, Nf, Opts, Pid]),
+            Result = gcm_erl_session:async_send_cb(Name, Nf, Opts, Pid, Cb),
+            ct:pal("Got result: ~p", [Result]),
+            {ok, {submitted, UUID}} = Result,
+            ct:pal("Submitted async cb notification, uuid = ~p~n", [UUID]),
+            true = is_uuid_str(UUID),
             async_receive_loop(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
@@ -195,41 +244,153 @@ async_send_msg_test(Config) ->
 async_send_msg_via_api_test(doc) ->
     ["gcm_erl:async_send/3 should send a message to GCM ",
      "asynchronously, and deliver async results to self"];
-async_send_msg_via_api_test(suite) ->
-    [];
 async_send_msg_via_api_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
-               {"X-GCMSimulator-Results", "message_id:1000"}],
+    Nf = make_nf(RegId, "async_send_msg_via_api_test"),
+    Opts = make_opts(Nf),
     [
         begin
             Name = req_val(name, Session),
-            GcmOpts = make_opts(RegId, "Hello, world!"),
-            Opts = [{http_headers, SimHdrs}],
-            {ok, {submitted, UUID}} = gcm_erl:async_send(Name, GcmOpts, Opts),
+            ct:pal("Call gcm_erl:async_send(~p, ~p, ~p)", [Name, Nf, Opts]),
+            Result = gcm_erl:async_send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {ok, {submitted, UUID}} = Result,
             ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
+            true = is_uuid_str(UUID),
             async_receive_loop(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
 
 %%--------------------------------------------------------------------
-async_receive_loop(UUID) ->
-    receive
-        {gcm_response, v1, {UUID, Resp}} ->
-            ct:pal("Received response for uuid ~p: ~p", [UUID, Resp]),
-            assert_success(Resp)
-    after
-        1000 ->
-            ct:fail({error, sim_timeout})
-    end.
+unavailable_test(doc) ->
+    ["Test behavior when GCM returns a timeout (i.e. Unavailable status)"];
+unavailable_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "unavailable_test")],
+    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+               {"X-GCMSimulator-Results", "error:Unavailable"}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, {failed, PErrors, rescheduled, RegIds}}} = Result,
+            ct:pal("Failed: ~p; Rescheduled: ~p", [PErrors, RegIds]),
+            [RegId] = RegIds,
+            ReqUUID = UUID
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
 
 %%--------------------------------------------------------------------
-assert_success(Resp) ->
-    {ok, {success, {UUID, Props}}} = Resp,
-    UUID = req_val(id, Props),
-    Status = req_val(status, Props),
-    Status = <<"200">>.
+bad_json_test(doc) ->
+    ["Test behavior when GCM returns an HTTP 400"];
+bad_json_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "bad_json_test")],
+    SC = <<"400">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            <<"BadRequest">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+auth_error_test(doc) ->
+    ["Test behavior when GCM returns an auth error (i.e. HTTP 401)"];
+auth_error_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "auth_error_test")],
+    SC = <<"401">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            <<"AuthenticationFailure">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+missing_reg_test(doc) ->
+    ["Test behavior when GCM returns a missing registration error"];
+missing_reg_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "auth_error_test")],
+    SC = <<"200">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
+               {"X-GCMSimulator-Results", "error:MissingRegistration"}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            <<"MissingRegistration">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+http_error_test(doc) ->
+    ["Test behavior when there is an http client error"];
+http_error_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "http_error_test")],
+    Opts =[],
+    %% Force a client error by stopping the GCM simulator
+    GcmSimNode = req_val(gcm_sim_node, Config),
+    stop_gcm_sim(GcmSimNode),
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, Reason} = Result,
+            ct:pal("Error: ~p", [Reason]),
+            {failed_connect, _} = Reason
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ct:pal("Restarting simulator"),
+    {ok, {GcmSimNode, _, _}} = start_simulator(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 
 %%====================================================================
 %% Internal helper functions
@@ -239,8 +400,8 @@ init_per_testcase_common(Config) ->
     ok = mnesia:create_schema([node()]),
     ok = mnesia:start(),
     Service = req_val(gcm_service, Config),
-    Sessions = req_val(gcm_sessions, Config),
     ct:pal("Service: ~p", [Service]),
+    Sessions = req_val(gcm_sessions, Config),
     ct:pal("Sessions: ~p", [Sessions]),
     ok = application:set_env(gcm_erl, service, Service),
     ok = application:set_env(gcm_erl, sessions, Sessions),
@@ -268,32 +429,79 @@ start_per_suite_apps(Config) ->
     lists:usort(StartedApps).
 
 %%--------------------------------------------------------------------
-make_opts([<<_/binary>>|_] = RegIds, Msg) ->
+start_simulator(Config) ->
+    {GcmShortSimNode, GcmSimCfg} = get_sim_config(gcm_sim_config, Config),
+    ct:log("GCM simulator short node name: ~p", [GcmShortSimNode]),
+    ct:log("GCM simulator config: ~p", [GcmSimCfg]),
+
+    %% Start GCM simulator
+    ct:log("Starting GCM simulator"),
+    Cookie = "scpf",
+    SimStartResult = start_gcm_sim(GcmShortSimNode, GcmSimCfg, Cookie),
+    {ok, {GcmSimNode, GcmSimStartedApps}} = SimStartResult,
+    ct:log("GCM simulator full node name: ~p", [GcmSimNode]),
+    ct:log("Started GCM simulator apps ~p", [GcmSimStartedApps]),
+    {ok, {GcmSimNode, GcmSimStartedApps, GcmSimCfg}}.
+
+%%--------------------------------------------------------------------
+async_receive_loop(UUID) ->
+    receive
+        {gcm_response, v1, {UUID, Resp}} ->
+            ct:pal("Received response for uuid ~p: ~p", [UUID, Resp]),
+            assert_success(Resp)
+    after
+        1000 ->
+            ct:fail({error, sim_timeout})
+    end.
+
+%%--------------------------------------------------------------------
+assert_success(Resp) ->
+    {ok, {success, {UUID, Props}}} = Resp,
+    UUID = req_val(id, Props),
+    true = is_uuid_str(UUID),
+    Status = req_val(status, Props),
+    Status = <<"200">>.
+
+%%--------------------------------------------------------------------
+make_nf([<<_/binary>>|_] = RegIds, Msg) ->
     [
         {registration_ids, [sc_util:to_bin(RegId) || RegId <- RegIds]},
         {data, [{alert, sc_util:to_bin(Msg)}]}
     ];
-make_opts(<<RegId/binary>>, Msg) ->
+make_nf(<<RegId/binary>>, Msg) ->
     [
         {to, RegId},
         {data, [{alert, sc_util:to_bin(Msg)}]}
     ].
 
 %%--------------------------------------------------------------------
-do_send_msg_test(GcmOpts, Config) ->
-    SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
-               {"X-GCMSimulator-Results", "message_id:1000"}],
+do_send_msg_test(Nf, Config) ->
+    Opts = make_opts(Nf),
     [
         begin
                 Name = req_val(name, Session),
-                Opts = [{http_headers, SimHdrs}],
                 ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
-                       [Name, GcmOpts, Opts]),
-                {ok, {UUID, Props}} = gcm_erl_session:send(Name, GcmOpts, Opts),
-                ct:pal("Sent notification, uuid = ~s, props = ~p",
-                       [UUID, Props])
+                       [Name, Nf, Opts]),
+                Result = gcm_erl_session:send(Name, Nf, Opts),
+                {ok, {success, {UUID, Props}}} = Result,
+                ct:pal("Got result, uuid = ~s, props = ~p", [UUID, Props]),
+                %% Assert UUID is correct
+                UUID = pv(uuid, Nf, UUID),
+                true = is_uuid_str(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ].
+
+%%--------------------------------------------------------------------
+make_opts(Nf) ->
+    Data = pv(data, Nf, []),
+    case pv(sim_cfg, Data) of
+        undefined ->
+            SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
+                       {"X-GCMSimulator-Results", "message_id:1000"}],
+            [{http_headers, SimHdrs}];
+        _ -> % Got sim_cfg, don't add headers
+            []
+    end.
 
 %%--------------------------------------------------------------------
 set_env(App, FromEnv) ->

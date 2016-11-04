@@ -406,12 +406,7 @@ send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
                     opts      = Opts,
                     cb_pid    = self(),
                     callback  = fun sync_send_callback/3},
-    case gen_server:call(SvrRef, Req) of
-        {ok, {submitted, UUID}} ->
-            wait_for_response(UUID, 5000);
-        Error ->
-            Error
-    end.
+    gen_server:call(SvrRef, Req).
 
 %%--------------------------------------------------------------------
 %% @doc Asynchronously sends a notification specified by
@@ -476,10 +471,11 @@ async_send_cb(SvrRef, Nf, Opts, ReplyPid, Cb) when is_list(Nf),
 
 %%--------------------------------------------------------------------
 %% @private
-%%--------------------------------------------------------------------
 get_state(SvrRef) ->
     gen_server:call(SvrRef, get_state).
 
+%%--------------------------------------------------------------------
+%% @private
 async_resched(ServerRef, #gcm_req{} = Req, Headers) when is_list(Headers) ->
     gen_server:cast(ServerRef, {reschedule, Req, Headers}).
 
@@ -585,28 +581,14 @@ handle_cast(_Msg, St) ->
     {stop, Reason::term(), NewSt::term()}
     .
 
-handle_info({resched_failed_reg_ids, FailedRegIds, Req, Headers}, St) ->
-    NewReq = replace_regids(Req, FailedRegIds),
-    reschedule_req(self(), backoff_params(St), NewReq, Headers),
-    {noreply, St};
-handle_info({http, {RequestId, {error, Reason}}}, St) ->
+handle_info({http, {RequestId, {error, Reason}=Err}}, St) ->
     Req = retrieve_req(RequestId),
-    do_cb({error, Reason}, Req),
+    do_cb(Err, Req),
     _ = lager:warning("HTTP error; rescheduling request~n"
                       "Reason: ~p~nRequest ID: ~p~nRequest:~p",
                       [Reason, RequestId, Req]),
     reschedule_req(self(), backoff_params(St), Req),
     {noreply, St};
-%% TODO:
-%% 1. Don't handle the responses in the gen_server, because it's
-%% blocking other requests. Either spawn off a process per response, or
-%% have a second gen_server running that does nothing but handle responses.
-%% Problem for both is no write access to ETS table...
-%% 2. Map the ReqId (which is an Erlang ref) to a uuid, which is
-%% returned in both the immediate response to the request (for an async
-%% request, or the ultimate response for a sync request), and the
-%% async callback. This is so that the user can specify a correlation id
-%% (a uuid in this case) to track async request/response pairs.
 handle_info({http, {ReqId, Result}}, St) ->
     ?LOG_DEBUG("Got http resp for req ~p: ~p", [ReqId, Result]),
     _ = case retrieve_req(ReqId) of
@@ -619,7 +601,9 @@ handle_info({http, {ReqId, Result}}, St) ->
                                [ReqId, Result])
         end,
     {noreply, St};
-%% Trigger notification received from request scheduler.
+%% Handle trigger notification received from request scheduler. This is needed
+%% for rescheduled notifications after backing off.  Call is set up by
+%% gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid).
 handle_info({triggered, {_ReqId, GCMReq}}, #?S{uri = URI} = St) ->
     dispatch_req(GCMReq, St#?S.httpc_opts, URI),
     {noreply, St};
@@ -771,21 +755,6 @@ do_send(#send_req{}=Req, From, #?S{}=St) ->
     end.
 
 %%--------------------------------------------------------------------
-wait_for_response(UUID, TimeoutMs) ->
-    ?LOG_DEBUG("Waiting for response, UUID ~s", [UUID]),
-    receive
-        {gcm_response, v1, {UUID, Resp}} ->
-            ?LOG_DEBUG("Got response for ~s: ~p", [UUID, Resp]),
-            {ok, {UUID, Resp}};
-        Resp ->
-            ?LOG_ERROR("Unexpected response in wait_for_response: ~p",
-                       [Resp]),
-            {error, {invalid_response, Resp}}
-    after TimeoutMs ->
-              {error, timeout}
-    end.
-
-%%--------------------------------------------------------------------
 retrieve_req(RequestId) ->
     case sc_push_req_mgr:remove(RequestId) of
         [{_,_}|_] = PL -> pv(req, PL);
@@ -811,6 +780,38 @@ pv_req(Key, PL) ->
     end.
 
 %%--------------------------------------------------------------------
+handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
+    UUID = Req#gcm_req.uuid,
+    case process_gcm_result(Req, Result) of
+        {{success, {_UUID, _Props}}=Success, _Hdrs} ->
+            {ok, Success};
+        {{results, ErrorList}, Hdrs} ->
+            PErrors = process_errors(Req, ErrorList),
+            case maybe_reschedule(SvrRef, Req, Hdrs, PErrors) of
+                [] -> % No rescheds, all errors
+                    {_StatusLine, _Hdrs, Resp} = Result,
+                    {error, {UUID, errors_to_props(PErrors, Resp, UUID)}};
+                RegIds ->
+                    {error, {UUID, {failed, PErrors, rescheduled, RegIds}}}
+            end;
+        {reschedule, {Hdrs, StatusDesc}} ->
+            _ = reschedule_req(SvrRef, BackoffParams, Req, Hdrs),
+            {error, {UUID, StatusDesc}};
+        {error, {<<UUID/binary>>, Reason}}=Err ->
+            _ = ?LOG_ERROR("Bad HTTP Result, uuid: ~p, reason: ~p, req=~p, "
+                           "result=~p", [UUID, Reason, Req, Result]),
+            Err;
+        {error, Reason} ->
+            _ = ?LOG_ERROR("Bad HTTP Result, reason: ~p, req=~p, result=~p",
+                           [Reason, Req, Result]),
+            {error, {UUID, Reason}};
+        {{error, Reason}, _Hdrs} ->
+            _ = ?LOG_ERROR("Bad GCM Result, reason: ~p; req=~p, result=~p",
+                           [Reason, Req, Result]),
+            {error, {UUID, Reason}}
+    end.
+
+%%--------------------------------------------------------------------
 -spec process_gcm_result(Req, {StatusLine, Headers, Resp}) -> Result when
       Req :: gcm_req(), StatusLine :: httpc_status_line(),
       Headers :: headers(), Resp :: binary(),
@@ -829,37 +830,75 @@ pv_req(Key, PL) ->
        CheckedResults :: checked_results(), StatusDesc :: bstring(),
        Props :: proplists:proplist(), Reason :: term().
 
-process_gcm_result(#gcm_req{uuid=UUID} = Req, {StatusLine, Headers, Resp}) ->
-    {_HTTPVersion, StatusCode, ReasonPhrase} = StatusLine,
-    case StatusCode of
-        200 ->
-            CheckedRes = check_json_resp(Req, Resp),
-            Chk = map_checked_res(CheckedRes, StatusCode, UUID, Resp),
-            _ = ?LOG_DEBUG("HTTP 200, chk: ~p, req: ~p, resp: ~p",
-                           [Chk, Req, Resp]),
-            {Chk, Headers};
-        400 ->
-            _ = ?LOG_ERROR("Bad GCM request, reason: ~s~nReq: ~p",
-                           [ReasonPhrase, Req]),
-            Props = parsed_resp(StatusCode, <<"BadRequest">>,
+process_gcm_result(#gcm_req{}=Req, {StatusLine, Headers, Resp}) ->
+    {HTTPVersion, StatusCode, ReasonPhrase} = StatusLine,
+    process_gcm_result(#{request => Req,
+                         http_version => HTTPVersion,
+                         status_code => StatusCode,
+                         reason_phrase => ReasonPhrase,
+                         headers => Headers,
+                         response => Resp}).
+
+%%--------------------------------------------------------------------
+-spec process_gcm_result(GcmResult) -> Result when
+      GcmResult :: map(), Result :: {{success, {UUID, Props}, Headers}}
+                                  | {{results, CheckedResults}, Headers}
+                                  | {reschedule, {Headers, StatusDesc}}
+                                  | {error, ErrorInfo}
+                                  ,
+      ErrorInfo :: missing_id_and_registration_ids
+                 | no_results_received
+                 | {bad_json, Resp, reason, Reason}
+                 | {UUID, Props}
+                 | {reg_ids_out_of_sync, {RegIds, GCMResults, CheckedResults}}
+                 ,
+      Resp :: binary(), UUID :: uuid(), RegIds :: reg_ids(),
+      GCMResults :: gcm_results(), CheckedResults :: checked_results(),
+      StatusDesc :: bstring(), Props :: proplists:proplist(),
+      Reason :: term().
+process_gcm_result(#{status_code := 200, request := Req, response := Resp,
+                     headers := Headers}) ->
+    CheckedRes = check_json_resp(Req, Resp),
+    Chk = map_checked_res(CheckedRes, 200, Req#gcm_req.uuid, Resp),
+    _ = ?LOG_DEBUG("HTTP 200, chk: ~p, req: ~p, resp: ~p",
+                   [Chk, Req, Resp]),
+    {Chk, Headers};
+process_gcm_result(#{status_code := 400, request := Req, response := Resp,
+                     reason_phrase := ReasonPhrase}) ->
+    UUID = Req#gcm_req.uuid,
+    _ = ?LOG_ERROR("Bad GCM request, reason: ~s~nReq: ~p",
+                   [ReasonPhrase, Req]),
+    Props = parsed_resp(400, <<"BadRequest">>,
+                        ReasonPhrase, UUID, Resp),
+    {error, {UUID, Props}};
+process_gcm_result(#{status_code := 401, request := Req, response := Resp,
+                     reason_phrase := ReasonPhrase}) ->
+    _ = ?LOG_ERROR("GCM Req auth failed, reason: ~s~n~p",
+                   [ReasonPhrase, Req]),
+    UUID = Req#gcm_req.uuid,
+    Props = parsed_resp(401, <<"AuthenticationFailure">>,
+                        ReasonPhrase, UUID, Resp),
+    {error, {UUID, Props}};
+process_gcm_result(#{status_code := SC, request := Req, response := Resp,
+                     headers := Headers,
+                     reason_phrase := ReasonPhrase}) when SC >= 500 ->
+    StatusDesc = status_desc(SC),
+    case retry_after_hdr(Headers) of
+        undefined -> % Probably a server error, don't retry
+            UUID = Req#gcm_req.uuid,
+            Props = parsed_resp(SC, StatusDesc,
                                 ReasonPhrase, UUID, Resp),
             {error, {UUID, Props}};
-        401 ->
-            _ = ?LOG_ERROR("GCM Req auth failed, reason: ~s~n~p",
-                           [ReasonPhrase, Req]),
-            Props = parsed_resp(StatusCode, <<"AuthenticationFailure">>,
-                                ReasonPhrase, UUID, Resp),
-            {error, {UUID, Props}};
-        _ when StatusCode >= 500 -> % Retry needed
-            StatusDesc = status_desc(StatusCode),
-            {reschedule, {Headers, StatusDesc}};
         _ ->
-            _ = ?LOG_ERROR("Unhandled status code: ~p, reason: ~s~nreq: ~p",
-                           [StatusCode, ReasonPhrase, Req]),
-            Props = parsed_resp(StatusCode, <<"Unknown">>,
-                                ReasonPhrase, UUID, Resp),
-            {error, {UUID, Props}}
-    end.
+            {reschedule, {Headers, StatusDesc}}
+    end;
+process_gcm_result(#{status_code := SC, request := Req, response := Resp,
+                     reason_phrase := ReasonPhrase}) ->
+    _ = ?LOG_ERROR("Unhandled status code: ~p, reason: ~s~nreq: ~p",
+                   [SC, ReasonPhrase, Req]),
+    UUID = Req#gcm_req.uuid,
+    Props = parsed_resp(SC, <<"Unknown">>, ReasonPhrase, UUID, Resp),
+    {error, {UUID, Props}}.
 
 %%--------------------------------------------------------------------
 -spec map_checked_res(CheckedRes, Status, UUID, Resp) -> Result when
@@ -1102,7 +1141,7 @@ check_results(Req, []) -> % No results, nothing to do
     _ = lager:warning("Expected GCM results, none found for req ~p", [Req]),
     {error, no_results_received};
 check_results(#gcm_req{req_data = Props}, Results) ->
-    RIds = case {pv(registration_ids, Props, []), pv(id, Props)} of
+    RIds = case {pv(registration_ids, Props, []), get_id_or_to_prop(Props)} of
                {[], <<Id/binary>>} when Id /= <<>> -> % A single reg id
                    [Id];
                {[_|_]=L, _} -> % A list of reg ids
@@ -1158,24 +1197,6 @@ check_result(BRegId, JsonProps) ->
 
 %%--------------------------------------------------------------------
 %% @private
--spec to_gcm_error(GCMErrorString) -> Result when
-      GCMErrorString :: bstring(), Result :: gcm_error().
-to_gcm_error(<<"MissingRegistration">>)       -> gcm_missing_reg;
-to_gcm_error(<<"InvalidRegistration">>)       -> gcm_invalid_reg;
-to_gcm_error(<<"MismatchSenderId">>)          -> gcm_mismatched_sender;
-to_gcm_error(<<"NotRegistered">>)             -> gcm_not_registered;
-to_gcm_error(<<"MessageTooBig">>)             -> gcm_message_too_big;
-to_gcm_error(<<"InvalidDataKey">>)            -> gcm_invalid_data_key;
-to_gcm_error(<<"InvalidTtl">>)                -> gcm_invalid_ttl;
-to_gcm_error(<<"Unavailable">>)               -> gcm_unavailable;
-to_gcm_error(<<"InternalServerError">>)       -> gcm_internal_server_error;
-to_gcm_error(<<"InvalidPackageName">>)        -> gcm_invalid_package_name;
-to_gcm_error(<<"DeviceMessageRateExceeded">>) -> gcm_device_msg_rate_exceeded;
-to_gcm_error(<<"TopicsMessageRateExceeded">>) -> gcm_topics_msg_rate_exceeded;
-to_gcm_error(<<_/binary>>)                    -> gcm_unknown_error.
-
-%%--------------------------------------------------------------------
-%% @private
 %% @doc Implement exponential backoff algorithm when headers are
 %% absent.
 reschedule_req(Pid, BackoffParams, #gcm_req{} = Request) ->
@@ -1192,9 +1213,7 @@ reschedule_req(Pid, BackoffParams, #gcm_req{} = Request, Headers) ->
             ReqId = Request#gcm_req.req_id,
             TriggerTime = sc_util:posix_time() + WaitSecs,
             NewReq = backoff_gcm_req(Request, WaitSecs),
-            ok = gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid),
-            do_cb(<<"rescheduled">>, Request),
-            ok;
+            ok = gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid);
         Status ->
             _ = ?LOG_ERROR("Dropped notification because ~p:~n~p",
                            [Status, Request]),
@@ -1235,8 +1254,18 @@ calc_backoff_secs(MaxBackoff, Request, Headers) ->
 
 %%--------------------------------------------------------------------
 %% @private
-retry_after_val(Headers) -> % headers come back in lowercase
-    list_to_integer(pv("retry-after", Headers, "0")).
+retry_after_val(Headers) ->
+    case retry_after_hdr(Headers) of
+        undefined ->
+            0;
+        Str ->
+            list_to_integer(Str)
+    end.
+
+%%--------------------------------------------------------------------
+%% @private
+retry_after_hdr(Headers) -> % headers come back in lowercase
+    pv("retry-after", Headers).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -1384,14 +1413,15 @@ notification_to_json(Nf) ->
 %%--------------------------------------------------------------------
 %% @private
 do_cb(Msg, #gcm_req{callback=Callback}=R) when is_function(Callback, 3) ->
-    ReqPL = gcm_req_to_list(R),
-    try
-        ok = Callback(R#gcm_req.req_data, ReqPL, Msg)
-    catch
-        _:Error ->
-            ?LOG_WARNING("Callback failed: ~p", [Error])
-    end,
-    ok.
+    spawn(fun() ->
+                  ReqPL = gcm_req_to_list(R),
+                  try
+                      ok = Callback(R#gcm_req.req_data, ReqPL, Msg)
+                  catch
+                      _:Error ->
+                          ?LOG_WARNING("Callback failed: ~p", [Error])
+                  end
+          end).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -1469,6 +1499,43 @@ gcm_req_to_list(#gcm_req{}=R) ->
      {num_attempts,  R#gcm_req.num_attempts},
      {created_at,    R#gcm_req.created_at},
      {backoff_secs,  R#gcm_req.backoff_secs}].
+
+%%--------------------------------------------------------------------
+%% @private
+-spec to_gcm_error(GCMErrorString) -> Result when
+      GCMErrorString :: bstring(), Result :: gcm_error().
+to_gcm_error(<<"MissingRegistration">>)       -> gcm_missing_reg;
+to_gcm_error(<<"InvalidRegistration">>)       -> gcm_invalid_reg;
+to_gcm_error(<<"MismatchSenderId">>)          -> gcm_mismatched_sender;
+to_gcm_error(<<"NotRegistered">>)             -> gcm_not_registered;
+to_gcm_error(<<"MessageTooBig">>)             -> gcm_message_too_big;
+to_gcm_error(<<"InvalidDataKey">>)            -> gcm_invalid_data_key;
+to_gcm_error(<<"InvalidTtl">>)                -> gcm_invalid_ttl;
+to_gcm_error(<<"Unavailable">>)               -> gcm_unavailable;
+to_gcm_error(<<"InternalServerError">>)       -> gcm_internal_server_error;
+to_gcm_error(<<"InvalidPackageName">>)        -> gcm_invalid_package_name;
+to_gcm_error(<<"DeviceMessageRateExceeded">>) -> gcm_device_msg_rate_exceeded;
+to_gcm_error(<<"TopicsMessageRateExceeded">>) -> gcm_topics_msg_rate_exceeded;
+to_gcm_error(<<_/binary>>)                    -> gcm_unknown_error.
+
+%%--------------------------------------------------------------------
+%% @private
+-spec from_gcm_error(GCMError) -> Result when
+      GCMError :: gcm_error(), Result :: bstring().
+
+from_gcm_error(gcm_missing_reg)              -> <<"MissingRegistration">>;
+from_gcm_error(gcm_invalid_reg)              -> <<"InvalidRegistration">>;
+from_gcm_error(gcm_mismatched_sender)        -> <<"MismatchSenderId">>;
+from_gcm_error(gcm_not_registered)           -> <<"NotRegistered">>;
+from_gcm_error(gcm_message_too_big)          -> <<"MessageTooBig">>;
+from_gcm_error(gcm_invalid_data_key)         -> <<"InvalidDataKey">>;
+from_gcm_error(gcm_invalid_ttl)              -> <<"InvalidTtl">>;
+from_gcm_error(gcm_unavailable)              -> <<"Unavailable">>;
+from_gcm_error(gcm_internal_server_error)    -> <<"InternalServerError">>;
+from_gcm_error(gcm_invalid_package_name)     -> <<"InvalidPackageName">>;
+from_gcm_error(gcm_device_msg_rate_exceeded) -> <<"DeviceMessageRateExceeded">>;
+from_gcm_error(gcm_topics_msg_rate_exceeded) -> <<"TopicsMessageRateExceeded">>;
+from_gcm_error(Err) when is_atom(Err)        -> sc_util:to_bin(Err).
 
 %%--------------------------------------------------------------------
 %% @doc Map HTTP status code to textual description.
@@ -1558,27 +1625,30 @@ parsed_resp(Status, Reason, ReasonDesc, UUID, Resp) ->
      [{body, EJSON}].
 
 %%--------------------------------------------------------------------
-handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
-    UUID = Req#gcm_req.uuid,
-    case process_gcm_result(Req, Result) of
-        {{success, {_UUID, _Props}}=Success, _Hdrs} ->
-            {ok, Success};
-        {{results, ErrorList}, Hdrs} ->
-            PErrors = process_errors(Req, ErrorList),
-            RegIds = maybe_reschedule(SvrRef, Req, Hdrs, PErrors),
-            {error, {UUID, {failed, PErrors, rescheduled, RegIds}}};
-        {reschedule, {Hdrs, StatusDesc}} ->
-            _ = reschedule_req(SvrRef, BackoffParams, Req, Hdrs),
-            {error, {UUID, StatusDesc}};
-        {error, Reason} ->
-            _ = ?LOG_ERROR("Bad HTTP Result, reason: ~p, req=~p, result=~p",
-                           [Reason, Req, Result]),
-            {error, {UUID, Reason}};
-        {{error, Reason}, _Hdrs} ->
-            _ = ?LOG_ERROR("Bad GCM Result, reason: ~p; req=~p, result=~p",
-                           [Reason, Req, Result]),
-            {error, {UUID, Reason}}
+get_id_or_to_prop(Props) ->
+    case {pv(id, Props), pv(to, Props)} of
+        {undefined, undefined} ->
+            undefined;
+        {Id, undefined} ->
+            Id;
+        {undefined, Id} ->
+            Id;
+        {_, _} = Ids ->
+            throw({ambiguous_ids, Ids})
     end.
+
+%%--------------------------------------------------------------------
+errors_to_props([{_,_}=Error], Resp, UUID) ->
+    error_to_props(Error, Resp, UUID);
+errors_to_props(Errors, Resp, UUID) ->
+    {errors, [error_to_props(Error, Resp, UUID) || Error <- Errors]}.
+
+%%--------------------------------------------------------------------
+error_to_props({GcmError, <<_RegId/binary>>},
+               Resp, UUID) when is_atom(GcmError) ->
+    Reason = from_gcm_error(GcmError),
+    ReasonDesc = reason_desc(Reason),
+    parsed_resp(200, Reason, ReasonDesc, UUID, Resp).
 
 %% vim: ts=4 sts=4 sw=4 et tw=80
 

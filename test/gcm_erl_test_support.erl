@@ -2,11 +2,14 @@
 
 -export([
          get_sim_config/2,
+         is_uuid_str/1,
+         make_uuid/0,
          multi_store/2,
          req_val/2,
          pv/2,
          pv/3,
-         start_gcm_sim/3
+         start_gcm_sim/3,
+         stop_gcm_sim/1
         ]).
 
 -include("gcm_erl_test_support.hrl").
@@ -20,6 +23,16 @@ get_sim_config(gcm_sim_config=Name, _Config) ->
     SimName = ct:get_config(gcm_sim_node),
     SimCfg = ct:get_config(Name),
     {SimName, SimCfg}.
+
+
+%%--------------------------------------------------------------------
+is_uuid_str(<<UUID/binary>>) ->
+    uuid:is_uuid(uuid:string_to_uuid(binary_to_list(UUID))).
+
+%%--------------------------------------------------------------------
+-spec make_uuid() -> uuid:uuid_str().
+make_uuid() ->
+    sc_util:to_bin(uuid:uuid_to_string(uuid:get_v4())).
 
 %%--------------------------------------------------------------------
 multi_store(Props, PropsToStore) ->
@@ -52,7 +65,24 @@ start_gcm_sim(Name, SimConfig, Cookie) ->
     ct:pal("Waiting for simulator ~p to accept connections", [Node]),
     TcpOptions = req_val(wm_config, SimConfig),
     ok = wait_for_sim(TcpOptions, 5000),
-    {ok, L}.
+    {ok, {Node, L}}.
+
+%%--------------------------------------------------------------------
+stop_gcm_sim(Node) ->
+    ct:pal("Stopping simulator app on node ~p", [Node]),
+    case rpc:call(Node, application, stop, [gcm_sim]) of
+        ok ->
+            ct:pal("Stopping simulator node ~p", [Node]),
+            monitor_node(Node, true),
+            stop_slave(Node),
+            ct:pal("Waiting for simulator node ~p to stop", [Node]),
+            receive
+                {nodedown, Node} ->
+                    ct:pal("Simulator on node ~p is down", [Node])
+            end;
+        {badrpc, nodedown} ->
+            ct:pal("Node ~p was already down", [Node])
+    end.
 
 %%--------------------------------------------------------------------
 wait_for_sim(TcpOptions, Timeout) ->
@@ -110,6 +140,10 @@ pv(Key, PL, DefVal) ->
 start_slave(Name, Args) ->
     {ok, Host} = inet:gethostname(),
     slave:start(Host, Name, Args).
+
+%%--------------------------------------------------------------------
+stop_slave(Node) ->
+    slave:stop(Node).
 
 %%--------------------------------------------------------------------
 session_info(SessCfg, StartedSessions) ->
