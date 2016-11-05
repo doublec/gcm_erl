@@ -52,11 +52,26 @@ groups() ->
                 async_send_msg_test,
                 async_send_msg_cb_test,
                 async_send_msg_via_api_test,
-                unavailable_test,
-                http_error_test,
                 auth_error_test,
                 bad_json_test,
-                missing_reg_test
+                missing_reg_test,
+                invalid_reg_test,
+                mismatched_sender_test,
+                not_registered_test,
+                message_too_big_test,
+                invalid_data_key_test,
+                invalid_ttl_test,
+                unavailable_test,
+                internal_server_error_test,
+                invalid_package_name_test,
+                device_msg_rate_exceeded_test,
+                topics_msg_rate_exceeded_test,
+                unknown_error_for_reg_id_test,
+                canonical_id_test,
+                server_500_test,
+                server_500_with_retry_after_test,
+                unhandled_status_code_test,
+                http_error_test
             ]
         }
     ].
@@ -263,12 +278,12 @@ async_send_msg_via_api_test(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-unavailable_test(doc) ->
+old_unavailable_test(doc) ->
     ["Test behavior when GCM returns a timeout (i.e. Unavailable status)"];
-unavailable_test(Config) ->
+old_unavailable_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "unavailable_test")],
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "old_unavailable_test")],
     SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
                {"X-GCMSimulator-Results", "error:Unavailable"}],
     Opts = [{http_headers, SimHdrs}],
@@ -338,32 +353,6 @@ auth_error_test(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-missing_reg_test(doc) ->
-    ["Test behavior when GCM returns a missing registration error"];
-missing_reg_test(Config) ->
-    RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "auth_error_test")],
-    SC = <<"200">>,
-    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
-               {"X-GCMSimulator-Results", "error:MissingRegistration"}],
-    Opts = [{http_headers, SimHdrs}],
-    [
-        begin
-            Name = req_val(name, Session),
-            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
-                   [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {UUID, Props}} = Result,
-            ReqUUID = UUID,
-            SC = req_val(status, Props),
-            <<"MissingRegistration">> = req_val(reason, Props)
-        end || Session <- req_val(gcm_sessions, Config)
-    ],
-    ok.
-
-%%--------------------------------------------------------------------
 http_error_test(doc) ->
     ["Test behavior when there is an http client error"];
 http_error_test(Config) ->
@@ -391,6 +380,186 @@ http_error_test(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+missing_reg_test(doc) ->
+    ["Force missing_reg error"];
+missing_reg_test(Config) ->
+    do_forced_error_test(missing_reg_test, Config).
+
+%%--------------------------------------------------------------------
+invalid_reg_test(doc) ->
+    ["Force invalid_reg error"];
+invalid_reg_test(Config) ->
+    do_forced_error_test(invalid_reg_test, Config).
+
+%%--------------------------------------------------------------------
+mismatched_sender_test(doc) ->
+    ["Force mismatched_sender error"];
+mismatched_sender_test(Config) ->
+    do_forced_error_test(mismatched_sender_test, Config).
+
+%%--------------------------------------------------------------------
+not_registered_test(doc) ->
+    ["Force not_registered error"];
+not_registered_test(Config) ->
+    do_forced_error_test(not_registered_test, Config).
+
+%%--------------------------------------------------------------------
+message_too_big_test(doc) ->
+    ["Force message_too_big error"];
+message_too_big_test(Config) ->
+    do_forced_error_test(message_too_big_test, Config).
+
+%%--------------------------------------------------------------------
+invalid_data_key_test(doc) ->
+    ["Force invalid_data_key error"];
+invalid_data_key_test(Config) ->
+    do_forced_error_test(invalid_data_key_test, Config).
+
+%%--------------------------------------------------------------------
+invalid_ttl_test(doc) ->
+    ["Force invalid_ttl error"];
+invalid_ttl_test(Config) ->
+    do_forced_error_test(invalid_ttl_test, Config).
+
+%%--------------------------------------------------------------------
+unavailable_test(doc) ->
+    ["Force unavailable error"];
+unavailable_test(Config) ->
+    do_forced_error_test(unavailable_test, Config).
+
+%%--------------------------------------------------------------------
+internal_server_error_test(doc) ->
+    ["Force internal_server_error error"];
+internal_server_error_test(Config) ->
+    do_forced_error_test(internal_server_error_test, Config).
+
+%%--------------------------------------------------------------------
+invalid_package_name_test(doc) ->
+    ["Force invalid_package_name error"];
+invalid_package_name_test(Config) ->
+    do_forced_error_test(invalid_package_name_test, Config).
+
+%%--------------------------------------------------------------------
+device_msg_rate_exceeded_test(doc) ->
+    ["Force device_msg_rate_exceeded error"];
+device_msg_rate_exceeded_test(Config) ->
+    do_forced_error_test(device_msg_rate_exceeded_test, Config).
+
+%%--------------------------------------------------------------------
+topics_msg_rate_exceeded_test(doc) ->
+    ["Force topics_msg_rate_exceeded error"];
+topics_msg_rate_exceeded_test(Config) ->
+    do_forced_error_test(topics_msg_rate_exceeded_test, Config).
+
+%%--------------------------------------------------------------------
+unknown_error_for_reg_id_test(doc) ->
+    ["Force unknown_error_for_reg_id error"];
+unknown_error_for_reg_id_test(Config) ->
+    do_forced_error_test(unknown_error_for_reg_id_test, Config).
+
+%%--------------------------------------------------------------------
+canonical_id_test(doc) ->
+    ["Force canonical id to be returned by GCM sim"];
+canonical_id_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "canonical_id_test")],
+    SC = <<"200">>,
+    SimResults = "message_id:9999,registration_id:XXX_ANewCanonicalId_XXX",
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
+               {"X-GCMSimulator-Results", SimResults}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {ok, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+server_500_test(doc) ->
+    ["Test behavior when GCM returns an HTTP 500 with no Retry-After header"];
+server_500_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "server_500_test")],
+    SC = <<"500">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            <<"InternalServerError">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+server_500_with_retry_after_test(doc) ->
+    ["Test behavior when GCM returns an HTTP 500 with a Retry-After header"];
+server_500_with_retry_after_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "server_500_with_retry_after_test")],
+    SC = <<"500">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
+               {"X-GCMSimulator-Retry-After", "1"}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            <<"InternalServerError">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
+unhandled_status_code_test(doc) ->
+    ["Test behavior when GCM returns an unexpected HTTP status code"];
+unhandled_status_code_test(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, "unhandled_status_code_test")],
+    SC = <<"410">>,
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            {error, {UUID, Props}} = Result,
+            ReqUUID = UUID,
+            SC = req_val(status, Props),
+            StatusDesc = req_val(status_desc, Props),
+            StatusDesc = <<"Unknown status code ", SC/binary>>,
+            <<"Unknown">> = req_val(reason, Props)
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
 
 %%====================================================================
 %% Internal helper functions
@@ -492,6 +661,38 @@ do_send_msg_test(Nf, Config) ->
     ].
 
 %%--------------------------------------------------------------------
+do_forced_error_test(TestName, Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    ReqUUID = make_uuid(),
+    Nf = [{uuid, ReqUUID} | make_nf(RegId, atom_to_list(TestName))],
+    SC = <<"200">>,
+    {SimErrorResult, SimReason} = sim_config(TestName),
+    SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
+               {"X-GCMSimulator-Results", SimErrorResult}],
+    Opts = [{http_headers, SimHdrs}],
+    [
+        begin
+            Name = req_val(name, Session),
+            ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
+                   [Name, Nf, Opts]),
+            Result = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Result]),
+            case Result of
+                {error, {UUID, {failed, [{FailReason, RegId}],
+                                rescheduled, [RegId]}}} ->
+                    ReqUUID = UUID,
+                    FailReason = expected_fail_reason(TestName),
+                    ct:pal("~p: Rescheduled reg id ~p", [TestName, RegId]);
+                {error, {UUID, Props}} ->
+                    ReqUUID = UUID,
+                    SC = req_val(status, Props),
+                    SimReason = req_val(reason, Props)
+            end
+        end || Session <- req_val(gcm_sessions, Config)
+    ],
+    ok.
+
+%%--------------------------------------------------------------------
 make_opts(Nf) ->
     Data = pv(data, Nf, []),
     case pv(sim_cfg, Data) of
@@ -502,6 +703,53 @@ make_opts(Nf) ->
         _ -> % Got sim_cfg, don't add headers
             []
     end.
+
+%%--------------------------------------------------------------------
+sim_config(missing_reg_test) ->
+    make_sim_config("MissingRegistration");
+sim_config(invalid_reg_test) ->
+    make_sim_config("InvalidRegistration");
+sim_config(mismatched_sender_test) ->
+    make_sim_config("MismatchSenderId");
+sim_config(not_registered_test) ->
+    make_sim_config("NotRegistered");
+sim_config(message_too_big_test) ->
+    make_sim_config("MessageTooBig");
+sim_config(invalid_data_key_test) ->
+    make_sim_config("InvalidDataKey");
+sim_config(invalid_ttl_test) ->
+    make_sim_config("InvalidTtl");
+sim_config(unavailable_test) ->
+    make_sim_config("Unavailable");
+sim_config(internal_server_error_test) ->
+    make_sim_config("InternalServerError");
+sim_config(invalid_package_name_test) ->
+    make_sim_config("InvalidPackageName");
+sim_config(device_msg_rate_exceeded_test) ->
+    make_sim_config("DeviceMessageRateExceeded");
+sim_config(topics_msg_rate_exceeded_test) ->
+    make_sim_config("TopicsMessageRateExceeded");
+sim_config(unknown_error_for_reg_id_test) ->
+    make_sim_config("SomeUnknownError").
+
+%%--------------------------------------------------------------------
+expected_fail_reason(TestName) when is_atom(TestName) -> % guess
+    list_to_atom("gcm_" ++ error_name(TestName)).
+
+%%--------------------------------------------------------------------
+error_name(TestName) when is_atom(TestName) ->
+    error_name(atom_to_list(TestName));
+error_name(ErrName) ->
+    case lists:reverse(ErrName) of
+        "tset_" ++ H ->
+            lists:reverse(H);
+        _ ->
+            ErrName
+    end.
+
+%%--------------------------------------------------------------------
+make_sim_config(ErrorString) ->
+    {"error:" ++ ErrorString, sc_util:to_bin(ErrorString)}.
 
 %%--------------------------------------------------------------------
 set_env(App, FromEnv) ->

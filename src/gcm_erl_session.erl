@@ -785,15 +785,8 @@ handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
     case process_gcm_result(Req, Result) of
         {{success, {_UUID, _Props}}=Success, _Hdrs} ->
             {ok, Success};
-        {{results, ErrorList}, Hdrs} ->
-            PErrors = process_errors(Req, ErrorList),
-            case maybe_reschedule(SvrRef, Req, Hdrs, PErrors) of
-                [] -> % No rescheds, all errors
-                    {_StatusLine, _Hdrs, Resp} = Result,
-                    {error, {UUID, errors_to_props(PErrors, Resp, UUID)}};
-                RegIds ->
-                    {error, {UUID, {failed, PErrors, rescheduled, RegIds}}}
-            end;
+        {{results, CheckedResults}, Hdrs} ->
+            process_checked_results(SvrRef, Req, Hdrs, Result, CheckedResults);
         {reschedule, {Hdrs, StatusDesc}} ->
             _ = reschedule_req(SvrRef, BackoffParams, Req, Hdrs),
             {error, {UUID, StatusDesc}};
@@ -886,7 +879,7 @@ process_gcm_result(#{status_code := SC, request := Req, response := Resp,
     case retry_after_hdr(Headers) of
         undefined -> % Probably a server error, don't retry
             UUID = Req#gcm_req.uuid,
-            Props = parsed_resp(SC, StatusDesc,
+            Props = parsed_resp(SC, <<"InternalServerError">>,
                                 ReasonPhrase, UUID, Resp),
             {error, {UUID, Props}};
         _ ->
@@ -911,6 +904,33 @@ map_checked_res(ok, Status, UUID, Resp) ->
     {success, {UUID, Props}};
 map_checked_res(CheckedRes, _Status, _UUID, _Resp) ->
     CheckedRes.
+
+%%--------------------------------------------------------------------
+process_checked_results(_SvrRef, Req, _Hdrs, Result,
+                        [{canonical_id, _}=Res]) ->
+    {canonical_id, {old, <<BRegId/binary>>,
+                    new, <<CanonicalId/binary>>}} = Res,
+    _ = ?LOG_INFO("Changing old GCM reg id ~p to new ~p",
+                  [BRegId, CanonicalId]),
+    OldSvcTok = sc_push_reg_api:make_svc_tok(gcm, BRegId),
+    ok = sc_push_reg_api:reregister_svc_tok(OldSvcTok, CanonicalId),
+    UUID = Req#gcm_req.uuid,
+    {_StatusLine, _Hdrs, Resp} = Result,
+    Props = parsed_resp(200, undefined, undefined, UUID, Resp),
+    {ok, {UUID, Props}};
+process_checked_results(SvrRef, Req, Hdrs, Result, [Res]) ->
+    UUID = Req#gcm_req.uuid,
+    PErrors = process_errors(Req, [Res]),
+    case maybe_reschedule(SvrRef, Req, Hdrs, PErrors) of
+        [] -> % No rescheds, all errors
+            {_StatusLine, _Hdrs, Resp} = Result,
+            {error, {UUID, errors_to_props(PErrors, Resp, UUID)}};
+        RegIds ->
+            {error, {UUID, {failed, PErrors, rescheduled, RegIds}}}
+    end;
+process_checked_results(_SvrRef, _Req, _Hdrs, _Result, CheckedResults) ->
+    throw({internal_error,
+           {cannot_process_multiple_results, CheckedResults}}).
 
 %%--------------------------------------------------------------------
 -spec process_errors(Req, ErrorList) -> Result when
@@ -1019,12 +1039,6 @@ process_error(Req, {gcm_topics_msg_rate_exceeded, _BRegId}=Err) ->
 process_error(Req, {unknown_error_for_reg_id, {BRegId, GCMError}}=Err) ->
     ?LOG_ERROR("Unknown GCM Error ~p sending to registration ID ~p, req: ~p",
                [GCMError, BRegId, Req]),
-    Err;
-process_error(_Req, {canonical_id, {old, BRegId, new, CanonicalId}}=Err) ->
-    _ = ?LOG_INFO("Changing old GCM reg id ~p to new ~p",
-                  [BRegId, CanonicalId]),
-    OldSvcTok = sc_push_reg_api:make_svc_tok(gcm, BRegId),
-    ok = sc_push_reg_api:reregister_svc_tok(OldSvcTok, CanonicalId),
     Err.
 
 %%--------------------------------------------------------------------
@@ -1464,6 +1478,7 @@ sync_reply(Caller, _UUID, Resp) ->
                [Caller, _UUID, Resp]),
     gen_server:reply(Caller, Resp).
 
+%%--------------------------------------------------------------------
 %% @private
 async_reply({Pid, _Tag} = Caller, UUID, Resp) ->
     ?LOG_DEBUG("async_reply to caller ~p, uuid=~s, resp=~p",
@@ -1606,6 +1621,7 @@ parsed_resp(Status, Reason, UUID, Resp) ->
          end,
     parsed_resp(Status, Reason, RD, UUID, Resp).
 
+%%--------------------------------------------------------------------
 parsed_resp(Status, Reason, ReasonDesc, UUID, Resp) ->
     S = sc_util:to_bin(Status),
     SD = status_desc(Status),
@@ -1647,6 +1663,10 @@ errors_to_props(Errors, Resp, UUID) ->
 error_to_props({GcmError, <<_RegId/binary>>},
                Resp, UUID) when is_atom(GcmError) ->
     Reason = from_gcm_error(GcmError),
+    ReasonDesc = reason_desc(Reason),
+    parsed_resp(200, Reason, ReasonDesc, UUID, Resp);
+error_to_props({GcmError, {<<_RegId/binary>>, <<Reason/binary>>}},
+               Resp, UUID) when is_atom(GcmError) ->
     ReasonDesc = reason_desc(Reason),
     parsed_resp(200, Reason, ReasonDesc, UUID, Resp).
 
