@@ -54,7 +54,7 @@
 
 -define(SERVER, ?MODULE).
 -define(TAB, ?MODULE).
--define(TIMER_TICK, 1000). % Tick every second
+-define(TIMER_TICK, 500). % Tick every 500ms
 
 -type terminate_reason() :: normal |
                             shutdown |
@@ -84,8 +84,12 @@
 %% to send the data to pid.
 %% `Data' is sent to `Pid' as `{triggered, {ReqId, Data}}'.
 %%--------------------------------------------------------------------
--spec add(any(), pos_integer(), any(), pid()) -> ok.
-add(Id, TriggerTime, Data, Pid) when is_integer(TriggerTime), is_pid(Pid)  ->
+-type time_posix_secs() :: pos_integer().
+-type time_posix_milli_seconds() :: pos_integer().
+-type trigger_time() :: time_posix_secs()
+                      | {time_posix_milli_seconds(), milli_seconds}.
+-spec add(any(), trigger_time(), any(), pid()) -> ok.
+add(Id, TriggerTime, Data, Pid) when is_pid(Pid)  ->
     gen_server:call(?SERVER, {add, {Id, TriggerTime, Data, Pid}}).
 
 %%--------------------------------------------------------------------
@@ -97,7 +101,7 @@ del(Id) ->
 
 %%--------------------------------------------------------------------
 %% @doc Retrieve data with given id, and return `{TriggerTime, Data}', or
-%% `notfound'. `TriggerTime' is POSIX time.
+%% `notfound'. `TriggerTime' is Erlang monotonic time in milliseconds.
 %%--------------------------------------------------------------------
 -spec get(any()) -> {ok, {TriggerTime::pos_integer(), Data::any}} | notfound.
 get(Id) ->
@@ -280,10 +284,18 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+add_impl(Id, {TriggerTimeMs, milli_seconds},
+         Data, Pid) when is_integer(TriggerTimeMs), is_pid(Pid) ->
+    add_impl_ms(Id, TriggerTimeMs, Data, Pid);
 add_impl(Id, TriggerTime, Data, Pid) when is_integer(TriggerTime),
                                           is_pid(Pid) ->
+    add_impl_ms(Id, TriggerTime * 1000, Data, Pid);
+add_impl(_Id, _TriggerTime, _Data, _Pid) ->
+    {error, invalid_parameter}.
+
+add_impl_ms(Id, TimestampMs, Data, Pid) ->
     Req = #req{id = Id,
-               trigger_time = TriggerTime,
+               trigger_time = TimestampMs,
                data = Data,
                dest_pid = Pid},
     ets:insert(?TAB, Req),
@@ -317,7 +329,7 @@ create_tables() ->
     ets:new(?MODULE, [set, protected, named_table, {keypos, #req.id}]).
 
 schedule_requests() ->
-    Now = sc_util:posix_time(),
+    Now = erlang:monotonic_time(milli_seconds),
     TriggeredMatchSpec = ets:fun2ms(
         fun(#req{} = R) when R#req.trigger_time =< Now -> R end
     ),

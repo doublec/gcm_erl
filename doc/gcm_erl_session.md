@@ -22,7 +22,7 @@ There must be one session per API key and sessions must have unique (i.e.
 they are registered) names within the node.
 
 
-#### <a name="Request">Request</a> ####
+### <a name="Request">Request</a> ###
 
 ```
    Nf = [{id, sc_util:to_bin(RegId)},
@@ -37,7 +37,16 @@ Note that the above notification is semantically identical to
          {data, [{alert, sc_util:to_bin(Msg)]}].
 ```
 
-It follows that you can send to multiple registration ids:
+
+#### <a name="DEPRECATED_until_future_enhancement">DEPRECATED until future enhancement</a> ####
+
+It follows that you should be able to send to multiple registration ids,
+as shown below, but this functionality is not working correctly yet.
+The notification will be sent, but the session will crash (deliberately)
+with an internal error.
+
+Consider this future functionality until it is fixed and this notice is
+removed.
 
 ```
    BRegIds = [sc_util:to_bin(RegId) || RegId <- RegIds],

@@ -22,7 +22,7 @@
 %%% There must be one session per API key and sessions must have unique (i.e.
 %%% they are registered) names within the node.
 %%%
-%%% === Request ===
+%%% == Request ==
 %%%
 %%% ```
 %%% Nf = [{id, sc_util:to_bin(RegId)},
@@ -37,7 +37,15 @@
 %%%       {data, [{alert, sc_util:to_bin(Msg)]}].
 %%% '''
 %%%
-%%% It follows that you can send to multiple registration ids:
+%%% === DEPRECATED until future enhancement ===
+%%%
+%%% It follows that you should be able to send to multiple registration ids,
+%%% as shown below, but this functionality is not working correctly yet.
+%%% The notification will be sent, but the session will crash (deliberately)
+%%% with an internal error.
+%%%
+%%% Consider this future functionality until it is fixed and this notice is
+%%% removed.
 %%%
 %%% ```
 %%% BRegIds = [sc_util:to_bin(RegId) || RegId <- RegIds],
@@ -586,7 +594,8 @@ handle_call(#send_req{mode=Mode, nf=Nf, callback=Callback}=SR, From,
 handle_call(get_state, _From, St) ->
     Reply = St,
     {reply, Reply, St};
-handle_call(_Request, _From, St) ->
+handle_call(_Msg, _From, St) ->
+    _ = ?LOG_DEBUG("Got unexpected handle_call msg ~p", [_Msg]),
     Reply = {error, invalid_call},
     {reply, Reply, St}.
 
@@ -610,6 +619,7 @@ handle_cast({reschedule, #gcm_req{} = Req, Hdrs}, St) when is_list(Hdrs) ->
 handle_cast(stop, St) ->
     {stop, stopped_by_api, St};
 handle_cast(_Msg, St) ->
+    _ = ?LOG_DEBUG("Got unexpected handle_cast msg ~p", [_Msg]),
     {noreply, St}.
 
 %%--------------------------------------------------------------------
@@ -628,16 +638,18 @@ handle_cast(_Msg, St) ->
 
 handle_info({http, {RequestId, {error, Reason}=Err}}, St) ->
     Req = retrieve_req(RequestId),
+    _ = ?LOG_DEBUG("Got http error resp, req: ~p, error: ~p, reqid: ~p",
+                   [Req, Err, RequestId]),
     do_cb(Err, Req),
-    _ = lager:warning("HTTP error; rescheduling request~n"
-                      "Reason: ~p~nRequest ID: ~p~nRequest:~p",
-                      [Reason, RequestId, Req]),
+    _ = ?LOG_WARNING("HTTP error; rescheduling request~n"
+                     "Reason: ~p~nRequest ID: ~p~nRequest:~p",
+                     [Reason, RequestId, Req]),
     reschedule_req(self(), backoff_params(St), Req),
     {noreply, St};
 handle_info({http, {ReqId, Result}}, St) ->
-    ?LOG_DEBUG("Got http resp for req ~p: ~p", [ReqId, Result]),
     _ = case retrieve_req(ReqId) of
             #gcm_req{} = Req ->
+                ?LOG_DEBUG("Got http resp for req ~p: ~p", [Req, Result]),
                 Msg = handle_gcm_result(self(), Req, Result,
                                         backoff_params(St)),
                 do_cb(Msg, Req);
@@ -650,9 +662,12 @@ handle_info({http, {ReqId, Result}}, St) ->
 %% for rescheduled notifications after backing off.  Call is set up by
 %% gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid).
 handle_info({triggered, {_ReqId, GCMReq}}, #?S{uri = URI} = St) ->
+    _ = ?LOG_DEBUG("Triggered ~s to resend ~p",
+                   [uuid_to_str(GCMReq#gcm_req.uuid), GCMReq]),
     dispatch_req(GCMReq, St#?S.httpc_opts, URI),
     {noreply, St};
 handle_info(_Info, St) ->
+    _ = ?LOG_DEBUG("Got unexpected handle_info msg ~p", [_Info]),
     {noreply, St}.
 
 %%--------------------------------------------------------------------
@@ -771,6 +786,8 @@ dispatch_req(#gcm_req{uuid      = UUID,
                      }=GCMReq, HTTPCOpts, URI) when is_binary(UUID),
                                                     bit_size(UUID) == 128 ->
 
+    _ = ?LOG_DEBUG("dispatch_req(req: ~p, httpcopts: ~p, uri: ~p)",
+                   [GCMReq, HTTPCOpts, URI]),
     ok = httpc:set_options(HTTPCOpts),
     ?LOG_DEBUG("httpc:set_options(~p)", [HTTPCOpts]),
     try httpc:request(post, Request, HTTPOpts, ReqOpts) of
@@ -833,12 +850,19 @@ handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
             {ok, Success};
         {{results, CheckedResults}, Hdrs} ->
             process_checked_results(SvrRef, Req, Hdrs, Result, CheckedResults);
-        {reschedule, {Hdrs, StatusDesc}} ->
-            _ = reschedule_req(SvrRef, BackoffParams, Req, Hdrs),
-            {error, {UUID, StatusDesc}};
+        {reschedule, {Hdrs, _StatusDesc}} ->
+            ok = reschedule_req(SvrRef, BackoffParams, Req, Hdrs),
+            case get_reg_ids(Req#gcm_req.req_data) of
+                [_|_] = RegIds -> % Trying for API consistency here
+                    Failed = [{gcm_unavailable, Id} || Id <- RegIds],
+                    {error, {UUID, {failed, Failed, rescheduled, RegIds}}};
+                {error, Reason} ->
+                    {error, {UUID, Reason}}
+            end;
         {error, {<<UUID/binary>>, Reason}}=Err ->
             _ = ?LOG_ERROR("Bad HTTP Result, uuid: ~p, reason: ~p, req=~p, "
-                           "result=~p", [uuid_to_str(UUID), Reason, Req, Result]),
+                           "result=~p",
+                           [uuid_to_str(UUID), Reason, Req, Result]),
             Err;
         {error, Reason} ->
             _ = ?LOG_ERROR("Bad HTTP Result, reason: ~p, req=~p, result=~p",
@@ -871,12 +895,14 @@ handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
 
 process_gcm_result(#gcm_req{}=Req, {StatusLine, Headers, Resp}) ->
     {HTTPVersion, StatusCode, ReasonPhrase} = StatusLine,
-    process_gcm_result(#{request => Req,
-                         http_version => HTTPVersion,
-                         status_code => StatusCode,
-                         reason_phrase => ReasonPhrase,
-                         headers => Headers,
-                         response => Resp}).
+    GCMResult = #{request => Req,
+                  http_version => HTTPVersion,
+                  status_code => StatusCode,
+                  reason_phrase => ReasonPhrase,
+                  headers => Headers,
+                  response => Resp},
+    _ = ?LOG_DEBUG("process_gcm_result(~p)", [GCMResult]),
+    process_gcm_result(GCMResult).
 
 %%--------------------------------------------------------------------
 -spec process_gcm_result(GcmResult) -> Result when
@@ -918,19 +944,9 @@ process_gcm_result(#{status_code := 401, request := Req, response := Resp,
     Props = parsed_resp(401, <<"AuthenticationFailure">>,
                         ReasonPhrase, UUID, Resp),
     {error, {UUID, Props}};
-process_gcm_result(#{status_code := SC, request := Req, response := Resp,
-                     headers := Headers,
-                     reason_phrase := ReasonPhrase}) when SC >= 500 ->
+process_gcm_result(#{status_code := SC, headers := Headers}) when SC >= 500 ->
     StatusDesc = status_desc(SC),
-    case retry_after_hdr(Headers) of
-        undefined -> % Probably a server error, don't retry
-            UUID = Req#gcm_req.uuid,
-            Props = parsed_resp(SC, <<"InternalServerError">>,
-                                ReasonPhrase, UUID, Resp),
-            {error, {UUID, Props}};
-        _ ->
-            {reschedule, {Headers, StatusDesc}}
-    end;
+    {reschedule, {Headers, StatusDesc}};
 process_gcm_result(#{status_code := SC, request := Req, response := Resp,
                      reason_phrase := ReasonPhrase}) ->
     _ = ?LOG_ERROR("Unhandled status code: ~p, reason: ~s~nreq: ~p",
@@ -1201,18 +1217,11 @@ check_results(Req, []) -> % No results, nothing to do
     _ = lager:warning("Expected GCM results, none found for req ~p", [Req]),
     {error, no_results_received};
 check_results(#gcm_req{req_data = Props}, Results) ->
-    RIds = case {pv(registration_ids, Props, []), get_id_or_to_prop(Props)} of
-               {[], <<Id/binary>>} when Id /= <<>> -> % A single reg id
-                   [Id];
-               {[_|_]=L, _} -> % A list of reg ids
-                   L;
-               _ ->
-                   {error, missing_id_and_registration_ids}
-           end,
-
-    case is_list(RIds) of
-        true -> check_results(RIds, Results, []);
-        false -> RIds
+    case get_reg_ids(Props) of
+        [_|_] = RIds ->
+            check_results(RIds, Results, []);
+        {error, _} = Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -1271,9 +1280,13 @@ reschedule_req(Pid, BackoffParams, #gcm_req{} = Request, Headers) ->
     case Res of
         {ok, WaitSecs} ->
             ReqId = Request#gcm_req.req_id,
-            TriggerTime = sc_util:posix_time() + WaitSecs,
+            Now = erlang:monotonic_time(milli_seconds),
+            TriggerTime = {Now + WaitSecs * 1000, milli_seconds},
             NewReq = backoff_gcm_req(Request, WaitSecs),
-            ok = gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid);
+            ok = gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid),
+            _ = ?LOG_DEBUG("Rescheduled ~p for ~B secs from now",
+                           [uuid_to_str(Request#gcm_req.uuid), WaitSecs]),
+            ok;
         Status ->
             _ = ?LOG_ERROR("Dropped notification because ~p:~n~p",
                            [Status, Request]),
@@ -1629,8 +1642,7 @@ status_desc(200) -> <<"Success">>;
 status_desc(400) -> <<"Invalid JSON">>;
 status_desc(401) -> <<"Authentication error">>;
 status_desc(404) -> <<"The path was bad">>;
-status_desc(500) -> <<"Internal server error">>;
-status_desc(Status) when is_integer(Status), Status > 500 ->
+status_desc(Status) when is_integer(Status), Status >= 500 ->
     <<"Unavailable">>;
 status_desc(Status) when is_integer(Status) ->
     list_to_binary([<<"Unknown status code ">>, integer_to_list(Status)]).
@@ -1718,6 +1730,17 @@ get_id_or_to_prop(Props) ->
             Id;
         {_, _} = Ids ->
             throw({ambiguous_ids, Ids})
+    end.
+
+%%--------------------------------------------------------------------
+get_reg_ids(Props) ->
+    case {pv(registration_ids, Props, []), get_id_or_to_prop(Props)} of
+        {[], <<Id/binary>>} when Id /= <<>> -> % A single reg id
+            [Id];
+        {[_|_]=L, _} -> % A list of reg ids
+            L;
+        _ ->
+            {error, missing_id_and_registration_ids}
     end.
 
 %%--------------------------------------------------------------------
