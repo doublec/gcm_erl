@@ -2,8 +2,12 @@
 
 -export([
          get_sim_config/2,
+         is_uuid/1,
          is_uuid_str/1,
          make_uuid/0,
+         make_uuid_str/0,
+         uuid_to_str/1,
+         str_to_uuid/1,
          multi_store/2,
          req_val/2,
          pv/2,
@@ -26,13 +30,32 @@ get_sim_config(gcm_sim_config=Name, _Config) ->
 
 
 %%--------------------------------------------------------------------
-is_uuid_str(<<UUID/binary>>) ->
-    uuid:is_uuid(uuid:string_to_uuid(binary_to_list(UUID))).
+is_uuid(UUID) ->
+    uuid:is_uuid(UUID).
 
 %%--------------------------------------------------------------------
--spec make_uuid() -> uuid:uuid_str().
+is_uuid_str(UUID) ->
+    is_uuid(str_to_uuid(UUID)).
+
+%%--------------------------------------------------------------------
+-spec make_uuid() -> uuid:uuid().
 make_uuid() ->
-    sc_util:to_bin(uuid:uuid_to_string(uuid:get_v4())).
+    uuid:get_v4().
+
+%%--------------------------------------------------------------------
+-spec make_uuid_str() -> binary().
+make_uuid_str() ->
+    uuid_to_str(uuid:get_v4()).
+
+%%--------------------------------------------------------------------
+-spec uuid_to_str(uuid:uuid()) -> binary().
+uuid_to_str(UUID) ->
+    uuid:uuid_to_string(UUID, binary_standard).
+
+%%--------------------------------------------------------------------
+-spec str_to_uuid(string() | binary()) -> uuid:uuid().
+str_to_uuid(UUID) ->
+    uuid:string_to_uuid(UUID).
 
 %%--------------------------------------------------------------------
 multi_store(Props, PropsToStore) ->

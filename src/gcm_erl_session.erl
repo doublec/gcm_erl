@@ -74,6 +74,8 @@
          async_send/2,
          async_send/3,
          async_send_cb/5,
+         sync_send_callback/3,
+         async_send_callback/3,
          get_state/1]).
 
 %% gen_server callbacks
@@ -153,7 +155,8 @@
                          Req    :: proplist(),
                          Result :: proplist()) -> any()).
 -type bstring() :: binary().
--type uuid() :: bstring().
+-type uuid() :: uuid:uuid().
+-type uuid_str() :: bstring().
 -type json() :: bstring().
 -type ejson() :: gcm_json:json_term().
 -type gcm_error() :: gcm_missing_reg
@@ -359,13 +362,7 @@ stop(SvrRef) ->
     gen_server:cast(SvrRef, stop).
 
 %%--------------------------------------------------------------------
-%% @doc Send a notification specified by `Nf' via
-%% `SvrRef'.  For JSON format, see
-%% <a href="http://developer.android.com/guide/google/gcm/gcm.html#server">
-%% GCM Architectural Overview</a>.
-%%
-%% @see gcm_json:make_notification/1.
-%% @see gcm_json:notification/0.
+%% @equiv send(SvrRef, Nf, [])
 %% @end
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Nf) -> Result when
@@ -376,10 +373,9 @@ send(SvrRef, Nf) when is_list(Nf) ->
     send(SvrRef, Nf, []).
 
 %%--------------------------------------------------------------------
-%% @doc Send a notification specified by `Nf' via
-%% `SvrRef', with options `Opts'.
-%%
-%% For JSON format, see Google GCM documentation.
+%% @doc Synchronously send a notification specified by `Nf' via `SvrRef', with
+%% options `Opts'. `SvrRef' can be the session name atom, a pid, or any other
+%% valid `gen_server' destination.
 %%
 %% == Opts ==
 %%
@@ -387,11 +383,30 @@ send(SvrRef, Nf) when is_list(Nf) ->
 %%  <dt>`http_headers :: [{string(), string()}]'</dt>
 %%  <dd>Extra HTTP headers to include with a request. These will be merged
 %%  with any internally-generated headers, and will override internally
-%%  generated headers, so caution is advised. Avoiding the Authorization
-%%  header is recommended. Currently only used
-%%  for testing with the GCM simulator.</dd>
+%%  generated headers, so caution is advised. Avoiding the `Authorization'
+%%  header is recommended. Currently only used for testing with the GCM
+%%  simulator.</dd>
 %% </dl>
 %%
+%% == Caveats ==
+%%
+%% Note that sending a notification synchronously is not recommended, because
+%% the duration of the call is unpredictable. The call may time out, leaving the
+%% status of the notification in doubt. Timeouts can occur for a number of
+%% reasons, such as the need for this session to retry sending the notification
+%% to GCM.
+%%
+%% It is better to use the asynchronous interface and handle the responses
+%% sent to the mailbox of the calling process, or provide a user-defined
+%% callback function. The callback function is spawned into its own process.
+%%
+%% == More information ==
+%%
+%% For JSON format and other information, see <a
+%% href="https://developers.google.com/cloud-messaging/http-server-ref"> GCM
+%% Connection Server Reference</a>.
+%%
+%% @see async_send/3.
 %% @see gcm_json:make_notification/1.
 %% @see gcm_json:notification/0.
 %% @end
@@ -409,8 +424,7 @@ send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
     gen_server:call(SvrRef, Req).
 
 %%--------------------------------------------------------------------
-%% @doc Asynchronously sends a notification specified by
-%% `Nf' via `SvrRef'; same as {@link send/2} otherwise.
+%% @equiv async_send(SvrRef, Nf, [])
 %% @end
 %%--------------------------------------------------------------------
 -spec async_send(SvrRef, Nf) -> Result when
@@ -421,8 +435,19 @@ async_send(SvrRef, Nf) when is_list(Nf) ->
     async_send(SvrRef, Nf, []).
 
 %%--------------------------------------------------------------------
-%% @doc Asynchronously sends a notification specified by
-%% `Nf' via `SvrRef' with options `Opts'.
+%% @doc Asynchronously send a notification specified by
+%% `Nf' via `SvrRef', with options `Opts'.
+%%
+%% The immediate response will be either `{ok, {submitted, UUID}}', or
+%% `{error, term()}'. `UUID' is either generated for the caller, or is the
+%% value of the property `{uuid, UUID}' if present in the notification
+%% property list.
+%%
+%% Note that the UUID must be a binary in standard UUID string format, e.g.
+%% `d611dcf3-bd70-453d-9fdd-94bc66cea7f7'. It is converted internally to
+%% a 128-bit binary on both storage and lookup, so it is case-insensitive.
+%%
+%% @equiv async_send_cb(SvrRef, Nf, Opts, self(), fun async_send_callback/3)
 %% @end
 %%--------------------------------------------------------------------
 -spec async_send(SvrRef, Nf, Opts) -> Result when
@@ -433,8 +458,10 @@ async_send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
     async_send_cb(SvrRef, Nf, Opts, self(), fun async_send_callback/3).
 
 %%--------------------------------------------------------------------
-%% @doc Asynchronously sends a notification specified by
-%% `Nf' via `SvrRef' with options `Opts'.
+%% @doc Asynchronously send a notification specified by
+%% `Nf' via `SvrRef' with options `Opts'. Respond immediately with the status of
+%% the call, and when the call completes asynchronously, run the callback
+%% function `Cb' and send the response `Resp' to `ReplyPid'.
 %%
 %% == Parameters ==
 %%
@@ -443,7 +470,7 @@ async_send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
 %%   <dd>The notification proplist.</dd>
 %%  <dt>`ReplyPid'</dt>
 %%   <dd>A `pid' to which asynchronous responses are to be sent.</dd>
-%%  <dt>`Callback'</dt>
+%%  <dt>`Cb'</dt>
 %%   <dd>A function to be called when the asynchronous operation is complete.
 %%   Its function spec is
 %%
@@ -468,6 +495,22 @@ async_send_cb(SvrRef, Nf, Opts, ReplyPid, Cb) when is_list(Nf),
                     cb_pid    = ReplyPid,
                     callback  = Cb},
     gen_server:call(SvrRef, Req).
+
+%%--------------------------------------------------------------------
+%% @doc Callback function to simulate a synchronous send. This is the
+%% callback function used by send/3.
+%% @end
+%%--------------------------------------------------------------------
+sync_send_callback(NfPL, Req, Resp) ->
+    gen_send_callback(fun sync_reply/3, NfPL, Req, Resp).
+
+%%--------------------------------------------------------------------
+%% @doc Standard callback function for an asynchronous send. This is
+%% the callback function used by async_send/3.
+%% @end
+%%--------------------------------------------------------------------
+async_send_callback(NfPL, Req, Resp) ->
+    gen_send_callback(fun async_reply/3, NfPL, Req, Resp).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -564,6 +607,8 @@ handle_call(_Request, _From, St) ->
 handle_cast({reschedule, #gcm_req{} = Req, Hdrs}, St) when is_list(Hdrs) ->
     reschedule_req(self(), backoff_params(St), Req, Hdrs),
     {noreply, St};
+handle_cast(stop, St) ->
+    {stop, stopped_by_api, St};
 handle_cast(_Msg, St) ->
     {noreply, St}.
 
@@ -645,7 +690,7 @@ code_change(_OldVsn, St, _Extra) ->
 %%%===================================================================
 
 validate_args(Name, Opts) ->
-    SslOpts = pv_req(ssl_opts, Opts),
+    SslOpts = ?assertList(pv_req(ssl_opts, Opts)),
     HttpcOpts = ?assertList(pv(httpc_opts, Opts, [])),
     ApiKey = ?assertBinary(pv_req(api_key, Opts)),
 
@@ -687,7 +732,7 @@ validate_args(Name, Opts) ->
 %%
 %% ```
 %% #gcm_req{req_id = SomeRef,
-%%          uuid = <<"someuuid">>,
+%%          uuid = <<_:128>>,
 %%          mode = async,
 %%          cb_pid = SomePid,
 %%          callback = SomeFun,
@@ -719,11 +764,12 @@ validate_args(Name, Opts) ->
 %% '''
 %% @end
 %%--------------------------------------------------------------------
-dispatch_req(#gcm_req{uuid=UUID,
-                      http_req=Request,
-                      http_opts=HTTPOpts,
-                      req_opts=ReqOpts
-                     }=GCMReq, HTTPCOpts, URI) when UUID =/= <<>> ->
+dispatch_req(#gcm_req{uuid      = UUID,
+                      http_req  = Request,
+                      http_opts = HTTPOpts,
+                      req_opts  = ReqOpts
+                     }=GCMReq, HTTPCOpts, URI) when is_binary(UUID),
+                                                    bit_size(UUID) == 128 ->
 
     ok = httpc:set_options(HTTPCOpts),
     ?LOG_DEBUG("httpc:set_options(~p)", [HTTPCOpts]),
@@ -732,7 +778,7 @@ dispatch_req(#gcm_req{uuid=UUID,
             sc_push_req_mgr:add(RequestId,
                                 GCMReq#gcm_req{req_id=RequestId}),
             _ = ?LOG_INFO("Queued POST (uuid: ~p, req id: ~p) to ~s",
-                          [UUID, RequestId, URI]),
+                          [uuid_to_str(UUID), RequestId, URI]),
             {ok, {submitted, UUID}};
         Error ->
             _ = ?LOG_ERROR("POST error to ~s:~n~p", [URI, Error]),
@@ -792,7 +838,7 @@ handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
             {error, {UUID, StatusDesc}};
         {error, {<<UUID/binary>>, Reason}}=Err ->
             _ = ?LOG_ERROR("Bad HTTP Result, uuid: ~p, reason: ~p, req=~p, "
-                           "result=~p", [UUID, Reason, Req, Result]),
+                           "result=~p", [uuid_to_str(UUID), Reason, Req, Result]),
             Err;
         {error, Reason} ->
             _ = ?LOG_ERROR("Bad HTTP Result, reason: ~p, req=~p, result=~p",
@@ -1352,7 +1398,7 @@ make_gcm_req(#send_req{mode=Mode,
              BackoffSecs) ->
     UUID = case pv(uuid, Nf) of
                undefined -> make_uuid();
-               UUIDVal   -> UUIDVal
+               UUIDVal   -> str_to_uuid(UUIDVal)
            end,
 
     #gcm_req{
@@ -1439,19 +1485,38 @@ do_cb(Msg, #gcm_req{callback=Callback}=R) when is_function(Callback, 3) ->
 
 %%--------------------------------------------------------------------
 %% @private
+-compile({inline, [{make_uuid, 0}]}).
 -spec make_uuid() -> uuid().
 make_uuid() ->
-    sc_util:to_bin(uuid:uuid_to_string(uuid:get_v4())).
+    uuid:get_v4().
 
 %%--------------------------------------------------------------------
 %% @private
-sync_send_callback(NfPL, Req, Resp) ->
-    gen_send_callback(fun sync_reply/3, NfPL, Req, Resp).
+-compile({inline, [{is_uuid, 1}]}).
+-spec is_uuid(uuid()) -> boolean().
+is_uuid(UUID) ->
+    uuid:is_uuid(UUID).
 
 %%--------------------------------------------------------------------
 %% @private
-async_send_callback(NfPL, Req, Resp) ->
-    gen_send_callback(fun async_reply/3, NfPL, Req, Resp).
+-compile({inline, [{make_uuid_str, 0}]}).
+-spec make_uuid_str() -> uuid_str().
+make_uuid_str() ->
+    uuid_to_str(make_uuid()).
+
+%%--------------------------------------------------------------------
+%% @private
+-compile({inline, [{uuid_to_str, 1}]}).
+-spec uuid_to_str(uuid()) -> uuid_str().
+uuid_to_str(UUID) ->
+    uuid:uuid_to_string(UUID, binary_standard).
+
+%%--------------------------------------------------------------------
+%% @private
+-compile({inline, [{str_to_uuid, 1}]}).
+-spec str_to_uuid(string() | binary()) -> uuid().
+str_to_uuid(UUIDStr) ->
+    uuid:string_to_uuid(UUIDStr).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -1465,8 +1530,9 @@ gen_send_callback(ReplyFun, _NfPL, Req, Resp) when is_function(ReplyFun, 3) ->
             {error, no_caller_info};
         Caller ->
             UUID = pv_req(uuid, Req),
+            true = is_uuid(UUID),
             ?LOG_DEBUG("Invoke callback(caller=~p, uuid=~s, resp=~p",
-                       [Caller, UUID, Resp]),
+                       [Caller, uuid_to_str(UUID), Resp]),
             ReplyFun(Caller, UUID, Resp),
             ok
     end.
@@ -1475,23 +1541,24 @@ gen_send_callback(ReplyFun, _NfPL, Req, Resp) when is_function(ReplyFun, 3) ->
 %% @private
 sync_reply(Caller, _UUID, Resp) ->
     ?LOG_DEBUG("sync_reply to caller ~p, uuid=~p, resp=~p",
-               [Caller, _UUID, Resp]),
+               [Caller, catch uuid_to_str(_UUID), Resp]),
     gen_server:reply(Caller, Resp).
 
 %%--------------------------------------------------------------------
 %% @private
 async_reply({Pid, _Tag} = Caller, UUID, Resp) ->
-    ?LOG_DEBUG("async_reply to caller ~p, uuid=~s, resp=~p",
-               [Caller, UUID, Resp]),
+    ?LOG_DEBUG("async_reply to caller ~p, uuid=~p, resp=~p",
+               [Caller, catch uuid_to_str(UUID), Resp]),
     Pid ! gcm_response(UUID, Resp);
 async_reply(Pid, UUID, Resp) when is_pid(Pid) ->
-    ?LOG_DEBUG("async_reply to pid ~p, uuid=~s, resp=~p",
-               [Pid, UUID, Resp]),
+    ?LOG_DEBUG("async_reply to pid ~p, uuid=~p, resp=~p",
+               [Pid, catch uuid_to_str(UUID), Resp]),
     Pid ! gcm_response(UUID, Resp).
 
 %%--------------------------------------------------------------------
 -compile({inline, [{gcm_response, 2}]}).
 gcm_response(UUID, Resp) ->
+    true = is_uuid(UUID),
     {gcm_response, v1, {UUID, Resp}}.
 
 %%--------------------------------------------------------------------
@@ -1628,7 +1695,7 @@ parsed_resp(Status, Reason, ReasonDesc, UUID, Resp) ->
     BResp = sc_util:to_bin(Resp),
     EJSON = try jsx:decode(BResp) catch _:_ -> BResp end,
 
-    [{id, UUID},
+    [{id, uuid_to_str(UUID)},
      {status, S},
      {status_desc, SD}] ++
     case Reason of

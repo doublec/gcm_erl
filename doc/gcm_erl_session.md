@@ -69,16 +69,6 @@ This is an example of the JSON sent to GCM:
 
 
 
-### <a name="type-bstring">bstring()</a> ###
-
-
-<pre><code>
-bstring() = binary()
-</code></pre>
-
-
-
-
 ### <a name="type-notification">notification()</a> ###
 
 
@@ -113,7 +103,7 @@ start_opts() = [<a href="gcm_erl_session.md#type-opt">gcm_erl_session:opt()</a>]
 
 
 <pre><code>
-uuid() = <a href="#type-bstring">bstring()</a>
+uuid() = <a href="/home/efine/work/sc/open_source/scpf/gcm_erl/_build/default/lib/uuid/doc/uuid.md#type-uuid">uuid:uuid()</a>
 </code></pre>
 
 <a name="index"></a>
@@ -121,12 +111,10 @@ uuid() = <a href="#type-bstring">bstring()</a>
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#async_send-2">async_send/2</a></td><td>Asynchronously sends a notification specified by
-<code>Nf</code> via <code>SvrRef</code>; same as <a href="#send-2"><code>send/2</code></a> otherwise.</td></tr><tr><td valign="top"><a href="#async_send-3">async_send/3</a></td><td>Asynchronously sends a notification specified by
-<code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#async_send_cb-5">async_send_cb/5</a></td><td>Asynchronously sends a notification specified by
-<code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send a notification specified by <code>Nf</code> via
-<code>SvrRef</code>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Send a notification specified by <code>Nf</code> via
-<code>SvrRef</code>, with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr></table>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#async_send-2">async_send/2</a></td><td>Equivalent to <a href="#async_send-3"><tt>async_send(SvrRef, Nf, [])</tt></a>.</td></tr><tr><td valign="top"><a href="#async_send-3">async_send/3</a></td><td>Asynchronously send a notification specified by
+<code>Nf</code> via <code>SvrRef</code>, with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#async_send_callback-3">async_send_callback/3</a></td><td>Standard callback function for an asynchronous send.</td></tr><tr><td valign="top"><a href="#async_send_cb-5">async_send_cb/5</a></td><td>Asynchronously send a notification specified by
+<code>Nf</code> via <code>SvrRef</code> with options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#send-2">send/2</a></td><td>Equivalent to <a href="#send-3"><tt>send(SvrRef, Nf, [])</tt></a>.</td></tr><tr><td valign="top"><a href="#send-3">send/3</a></td><td>Synchronously send a notification specified by <code>Nf</code> via <code>SvrRef</code>, with
+options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#start-2">start/2</a></td><td>Start a named session as described by the <code>StartOpts</code>.</td></tr><tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td>Start a named session as described by the options <code>Opts</code>.</td></tr><tr><td valign="top"><a href="#stop-1">stop/1</a></td><td>Stop session.</td></tr><tr><td valign="top"><a href="#sync_send_callback-3">sync_send_callback/3</a></td><td>Callback function to simulate a synchronous send.</td></tr></table>
 
 
 <a name="functions"></a>
@@ -143,8 +131,7 @@ async_send(SvrRef, Nf) -&gt; Result
 
 <ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {submitted, UUID}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Reason = term()</code></li></ul>
 
-Asynchronously sends a notification specified by
-`Nf` via `SvrRef`; same as [`send/2`](#send-2) otherwise.
+Equivalent to [`async_send(SvrRef, Nf, [])`](#async_send-3).
 
 <a name="async_send-3"></a>
 
@@ -156,8 +143,28 @@ async_send(SvrRef, Nf, Opts) -&gt; Result
 
 <ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {submitted, UUID}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Reason = term()</code></li></ul>
 
-Asynchronously sends a notification specified by
-`Nf` via `SvrRef` with options `Opts`.
+Equivalent to [`async_send_cb(SvrRef, Nf, Opts, self(),fun async_send_callback/3)`](#async_send_cb-5).
+
+Asynchronously send a notification specified by
+`Nf` via `SvrRef`, with options `Opts`.
+
+The immediate response will be either `{ok, {submitted, UUID}}`, or
+`{error, term()}`. `UUID` is either generated for the caller, or is the
+value of the property `{uuid, UUID}` if present in the notification
+property list.
+
+Note that the UUID must be a binary in standard UUID string format, e.g.
+`d611dcf3-bd70-453d-9fdd-94bc66cea7f7`. It is converted internally to
+a 128-bit binary on both storage and lookup, so it is case-insensitive.
+
+<a name="async_send_callback-3"></a>
+
+### async_send_callback/3 ###
+
+`async_send_callback(NfPL, Req, Resp) -> any()`
+
+Standard callback function for an asynchronous send. This is
+the callback function used by async_send/3.
 
 <a name="async_send_cb-5"></a>
 
@@ -165,8 +172,10 @@ Asynchronously sends a notification specified by
 
 `async_send_cb(SvrRef, Nf, Opts, ReplyPid, Cb) -> any()`
 
-Asynchronously sends a notification specified by
-`Nf` via `SvrRef` with options `Opts`.
+Asynchronously send a notification specified by
+`Nf` via `SvrRef` with options `Opts`. Respond immediately with the status of
+the call, and when the call completes asynchronously, run the callback
+function `Cb` and send the response `Resp` to `ReplyPid`.
 
 
 ### <a name="Parameters">Parameters</a> ###
@@ -193,7 +202,7 @@ Asynchronously sends a notification specified by
 
 
 
-<dt><code>Callback</code></dt>
+<dt><code>Cb</code></dt>
 
 
 
@@ -218,12 +227,7 @@ send(SvrRef, Nf) -&gt; Result
 
 <ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
-Send a notification specified by `Nf` via
-`SvrRef`.  For JSON format, see
-[
-GCM Architectural Overview](http://developer.android.com/guide/google/gcm/gcm.md#server).
-
-__See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [gcm_json:notification/0](gcm_json.md#notification-0).
+Equivalent to [`send(SvrRef, Nf, [])`](#send-3).
 
 <a name="send-3"></a>
 
@@ -235,10 +239,9 @@ send(SvrRef, Nf, Opts) -&gt; Result
 
 <ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
-Send a notification specified by `Nf` via
-`SvrRef`, with options `Opts`.
-
-For JSON format, see Google GCM documentation.
+Synchronously send a notification specified by `Nf` via `SvrRef`, with
+options `Opts`. `SvrRef` can be the session name atom, a pid, or any other
+valid `gen_server` destination.
 
 
 ### <a name="Opts">Opts</a> ###
@@ -252,14 +255,32 @@ For JSON format, see Google GCM documentation.
 
 <dd>Extra HTTP headers to include with a request. These will be merged
 with any internally-generated headers, and will override internally
-generated headers, so caution is advised. Avoiding the Authorization
-header is recommended. Currently only used
-for testing with the GCM simulator.</dd>
+generated headers, so caution is advised. Avoiding the <code>Authorization</code>
+header is recommended. Currently only used for testing with the GCM
+simulator.</dd>
 
 
 
 
-__See also:__ [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [gcm_json:notification/0](gcm_json.md#notification-0).
+### <a name="Caveats">Caveats</a> ###
+
+Note that sending a notification synchronously is not recommended, because
+the duration of the call is unpredictable. The call may time out, leaving the
+status of the notification in doubt. Timeouts can occur for a number of
+reasons, such as the need for this session to retry sending the notification
+to GCM.
+
+It is better to use the asynchronous interface and handle the responses
+sent to the mailbox of the calling process, or provide a user-defined
+callback function. The callback function is spawned into its own process.
+
+
+### <a name="More_information">More information</a> ###
+
+For JSON format and other information, see [ GCM
+Connection Server Reference](https://developers.google.com/cloud-messaging/http-server-ref).
+
+__See also:__ [async_send/3](#async_send-3), [gcm_json:make_notification/1](gcm_json.md#make_notification-1), [gcm_json:notification/0](gcm_json.md#notification-0).
 
 <a name="start-2"></a>
 
@@ -410,4 +431,13 @@ stop(SvrRef::term()) -&gt; term()
 <br />
 
 Stop session.
+
+<a name="sync_send_callback-3"></a>
+
+### sync_send_callback/3 ###
+
+`sync_send_callback(NfPL, Req, Resp) -> any()`
+
+Callback function to simulate a synchronous send. This is the
+callback function used by send/3.
 

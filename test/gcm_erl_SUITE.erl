@@ -10,8 +10,12 @@
 -import(gcm_erl_test_support,
         [
          get_sim_config/2,
+         is_uuid/1,
          is_uuid_str/1,
          make_uuid/0,
+         make_uuid_str/0,
+         str_to_uuid/1,
+         uuid_to_str/1,
          multi_store/2,
          req_val/2,
          pv/2,
@@ -35,44 +39,42 @@ all() ->
 %%--------------------------------------------------------------------
 groups() ->
     [
-        {
-            session,
-            [],
-            [{group, clients}]
-        },
-        {
-            clients,
-            [],
-            [
-                get_state_test,
-                send_msg_test,
-                send_msg_uuid_test,
-                send_msg_regids_test,
-                send_msg_via_api_test,
-                async_send_msg_test,
-                async_send_msg_cb_test,
-                async_send_msg_via_api_test,
-                auth_error_test,
-                bad_json_test,
-                missing_reg_test,
-                invalid_reg_test,
-                mismatched_sender_test,
-                not_registered_test,
-                message_too_big_test,
-                invalid_data_key_test,
-                invalid_ttl_test,
-                unavailable_test,
-                internal_server_error_test,
-                invalid_package_name_test,
-                device_msg_rate_exceeded_test,
-                topics_msg_rate_exceeded_test,
-                unknown_error_for_reg_id_test,
-                canonical_id_test,
-                server_500_test,
-                server_500_with_retry_after_test,
-                unhandled_status_code_test,
-                http_error_test
-            ]
+        {session, [], [{group, config},
+                       {group, clients}]},
+        {config, [], [bad_config_test]},
+        {clients, [],
+         [
+          stop_test,
+          get_state_test,
+          send_msg_test2,
+          send_msg_test3,
+          send_msg_uuid_test,
+          send_msg_regids_test,
+          send_msg_via_api_test,
+          async_send_msg_test,
+          async_send_msg_cb_test,
+          async_send_msg_via_api_test,
+          auth_error_test,
+          bad_json_test,
+          missing_reg_test,
+          invalid_reg_test,
+          mismatched_sender_test,
+          not_registered_test,
+          message_too_big_test,
+          invalid_data_key_test,
+          invalid_ttl_test,
+          unavailable_test,
+          internal_server_error_test,
+          invalid_package_name_test,
+          device_msg_rate_exceeded_test,
+          topics_msg_rate_exceeded_test,
+          unknown_error_for_reg_id_test,
+          canonical_id_test,
+          server_500_test,
+          server_500_with_retry_after_test,
+          unhandled_status_code_test,
+          http_error_test
+         ]
         }
     ].
 
@@ -82,7 +84,8 @@ suite() -> [
         {require, gcm_sim_node},
         {require, gcm_sim_config},
         {require, gcm_erl},
-        {require, registration_id}
+        {require, registration_id},
+        {require, gcm_erl_bad_config}
     ].
 
 %%--------------------------------------------------------------------
@@ -136,9 +139,37 @@ init_per_testcase(_Case, Config) ->
 end_per_testcase(_Case, Config) ->
     end_per_testcase_common(Config).
 
-%%--------------------------------------------------------------------
+%%====================================================================
 %% TEST CASES
+%%====================================================================
+
 %%--------------------------------------------------------------------
+bad_config_test(doc) -> ["Test starting gcm_erl_session with bad config"];
+bad_config_test(_Config) ->
+    BadConfig = ct:get_config(gcm_erl_bad_config),
+    Name = req_val(name, BadConfig),
+    StartOpts = req_val(config, BadConfig),
+    ct:pal("Starting session ~p with bad opts ~p", [Name, StartOpts]),
+    ?assertMatch({error, {invalid_opts, StartOpts}},
+                 gcm_erl_session:start(Name, StartOpts)).
+
+%%--------------------------------------------------------------------
+stop_test(doc) -> ["Test stopping gcm_erl_session"];
+stop_test(Config) ->
+    [Session|_] = req_val(gcm_sessions, Config),
+    Name = req_val(name, Session),
+    ct:pal("Stop gcm_erl_session ~p", [Name]),
+    MonitorRef = erlang:monitor(process, Name),
+    ok = gcm_erl_session:stop(Name),
+    receive
+        {'DOWN', MonitorRef, Type, Object, Info} ->
+            ct:pal("Received 'DOWN', type ~p, object ~p, info ~p",
+                   [Type, Object, Info])
+    after
+        2000 ->
+            ct:pal("Did not receive DOWN in time for session ~p", [Name]),
+            ct:fail({error, monitor_timeout})
+    end.
 
 %%--------------------------------------------------------------------
 get_state_test(doc) -> ["Test gcm_erl_session:get_state/1"];
@@ -155,11 +186,20 @@ get_state_test(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-send_msg_test(doc) ->
-    ["gcm_erl_session:send/3 should send a message to GCM"];
-send_msg_test(Config) ->
+send_msg_test2(doc) ->
+    ["gcm_erl_session:send/2 should send a message to GCM"];
+send_msg_test2(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    Nf = make_nf(RegId, "send_msg_test"),
+    Nf = make_nf(RegId, "send_msg_test2"),
+    do_send_msg_test2(Nf, Config),
+    ok.
+
+%%--------------------------------------------------------------------
+send_msg_test3(doc) ->
+    ["gcm_erl_session:send/3 should send a message to GCM"];
+send_msg_test3(Config) ->
+    RegId = sc_util:to_bin(req_val(registration_id, Config)),
+    Nf = make_nf(RegId, "send_msg_test3"),
     do_send_msg_test(Nf, Config),
     ok.
 
@@ -168,7 +208,7 @@ send_msg_uuid_test(doc) ->
     ["gcm_erl_session:send/3 should send a message to GCM"];
 send_msg_uuid_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
-    Nf = [{uuid, make_uuid()} | make_nf(RegId, "send_msg_uuid_test")],
+    Nf = [{uuid, make_uuid_str()} | make_nf(RegId, "send_msg_uuid_test")],
     do_send_msg_test(Nf, Config),
     ok.
 
@@ -196,8 +236,9 @@ send_msg_via_api_test(Config) ->
                 Result = gcm_erl:send(Name, Nf, Opts),
                 ct:pal("Got result: ~p", [Result]),
                 {ok, {success, {UUID, Props}}} = Result,
-                ct:pal("Success, uuid = ~p, props = ~p", [UUID, Props]),
-                true = is_uuid_str(UUID)
+                true = is_uuid(UUID),
+                UUIDStr = uuid_to_str(UUID),
+                ct:pal("Success, uuid = ~s, props = ~p", [UUIDStr, Props])
         end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
@@ -218,8 +259,9 @@ async_send_msg_test(Config) ->
             Result = gcm_erl_session:async_send(Name, Nf, Opts),
             ct:pal("Got result: ~p", [Result]),
             {ok, {submitted, UUID}} = Result,
-            ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
-            true = is_uuid_str(UUID),
+            true = is_uuid(UUID),
+            UUIDStr = uuid_to_str(UUID),
+            ct:pal("Submitted async notification, uuid = ~s~n", [UUIDStr]),
             async_receive_loop(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
@@ -248,8 +290,9 @@ async_send_msg_cb_test(Config) ->
             Result = gcm_erl_session:async_send_cb(Name, Nf, Opts, Pid, Cb),
             ct:pal("Got result: ~p", [Result]),
             {ok, {submitted, UUID}} = Result,
-            ct:pal("Submitted async cb notification, uuid = ~p~n", [UUID]),
-            true = is_uuid_str(UUID),
+            true = is_uuid(UUID),
+            UUIDStr = uuid_to_str(UUID),
+            ct:pal("Submitted async cb notification, uuid = ~s~n", [UUIDStr]),
             async_receive_loop(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
@@ -270,8 +313,9 @@ async_send_msg_via_api_test(Config) ->
             Result = gcm_erl:async_send(Name, Nf, Opts),
             ct:pal("Got result: ~p", [Result]),
             {ok, {submitted, UUID}} = Result,
-            ct:pal("Submitted async notification, uuid = ~p~n", [UUID]),
-            true = is_uuid_str(UUID),
+            true = is_uuid(UUID),
+            UUIDStr = uuid_to_str(UUID),
+            ct:pal("Submitted async notification, uuid = ~p~n", [UUIDStr]),
             async_receive_loop(UUID)
         end || Session <- req_val(gcm_sessions, Config)
     ],
@@ -283,7 +327,7 @@ old_unavailable_test(doc) ->
 old_unavailable_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "old_unavailable_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "old_unavailable_test")],
     SimHdrs = [{"X-GCMSimulator-StatusCode", "200"},
                {"X-GCMSimulator-Results", "error:Unavailable"}],
     Opts = [{http_headers, SimHdrs}],
@@ -308,7 +352,7 @@ bad_json_test(doc) ->
 bad_json_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "bad_json_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "bad_json_test")],
     SC = <<"400">>,
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
     Opts = [{http_headers, SimHdrs}],
@@ -333,7 +377,7 @@ auth_error_test(doc) ->
 auth_error_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "auth_error_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "auth_error_test")],
     SC = <<"401">>,
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
     Opts = [{http_headers, SimHdrs}],
@@ -346,6 +390,7 @@ auth_error_test(Config) ->
             ct:pal("Got result: ~p", [Result]),
             {error, {UUID, Props}} = Result,
             ReqUUID = UUID,
+            ReqUUID = str_to_uuid(req_val(id, Props)),
             SC = req_val(status, Props),
             <<"AuthenticationFailure">> = req_val(reason, Props)
         end || Session <- req_val(gcm_sessions, Config)
@@ -358,7 +403,7 @@ http_error_test(doc) ->
 http_error_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "http_error_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "http_error_test")],
     Opts =[],
     %% Force a client error by stopping the GCM simulator
     GcmSimNode = req_val(gcm_sim_node, Config),
@@ -463,7 +508,7 @@ canonical_id_test(doc) ->
 canonical_id_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "canonical_id_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "canonical_id_test")],
     SC = <<"200">>,
     SimResults = "message_id:9999,registration_id:XXX_ANewCanonicalId_XXX",
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
@@ -489,7 +534,7 @@ server_500_test(doc) ->
 server_500_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "server_500_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "server_500_test")],
     SC = <<"500">>,
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
     Opts = [{http_headers, SimHdrs}],
@@ -514,7 +559,8 @@ server_500_with_retry_after_test(doc) ->
 server_500_with_retry_after_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "server_500_with_retry_after_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} |
+          make_nf(RegId, "server_500_with_retry_after_test")],
     SC = <<"500">>,
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
                {"X-GCMSimulator-Retry-After", "1"}],
@@ -540,7 +586,7 @@ unhandled_status_code_test(doc) ->
 unhandled_status_code_test(Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, "unhandled_status_code_test")],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} | make_nf(RegId, "unhandled_status_code_test")],
     SC = <<"410">>,
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)}],
     Opts = [{http_headers, SimHdrs}],
@@ -616,7 +662,8 @@ start_simulator(Config) ->
 async_receive_loop(UUID) ->
     receive
         {gcm_response, v1, {UUID, Resp}} ->
-            ct:pal("Received response for uuid ~p: ~p", [UUID, Resp]),
+            ct:pal("Received response for uuid ~s: ~p",
+                   [uuid_to_str(UUID), Resp]),
             assert_success(Resp)
     after
         1000 ->
@@ -626,8 +673,8 @@ async_receive_loop(UUID) ->
 %%--------------------------------------------------------------------
 assert_success(Resp) ->
     {ok, {success, {UUID, Props}}} = Resp,
-    UUID = req_val(id, Props),
-    true = is_uuid_str(UUID),
+    true = is_uuid(UUID),
+    UUID = str_to_uuid(req_val(id, Props)),
     Status = req_val(status, Props),
     Status = <<"200">>.
 
@@ -645,26 +692,52 @@ make_nf(<<RegId/binary>>, Msg) ->
 
 %%--------------------------------------------------------------------
 do_send_msg_test(Nf, Config) ->
-    Opts = make_opts(Nf),
-    [
-        begin
+    SendFun = fun(NfPL, Session) ->
                 Name = req_val(name, Session),
+                Opts = make_opts(NfPL),
                 ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
-                       [Name, Nf, Opts]),
-                Result = gcm_erl_session:send(Name, Nf, Opts),
-                {ok, {success, {UUID, Props}}} = Result,
-                ct:pal("Got result, uuid = ~s, props = ~p", [UUID, Props]),
-                %% Assert UUID is correct
-                UUID = pv(uuid, Nf, UUID),
-                true = is_uuid_str(UUID)
-        end || Session <- req_val(gcm_sessions, Config)
-    ].
+                       [Name, NfPL, Opts]),
+                gcm_erl_session:send(Name, NfPL, Opts)
+              end,
+    do_send_msg_test(Nf, Config, SendFun).
+
+%%--------------------------------------------------------------------
+do_send_msg_test2(Nf, Config) ->
+    %% Since we can't use HTTP headers here, use the extended
+    %% JSON interface, namely:
+    %% Nf = [..., {data, [..., {sim_cfg, SimCfg}]}]
+    %% SimCfg = [{results, Results}]
+    %% Results = <<"same format as X-GCMSimulator-Results">>
+    %% SimCfg can also contain {status_code, <<"200">>} (or other HTTP code),
+    %% and {delay, non_neg_integer()} for a retry-after header.
+    Results = <<"message_id:1000">>,
+    SimCfg = [{sim_cfg, [{results, Results}]}],
+    Data = pv(data, Nf, []) ++ SimCfg,
+    Nf2 = lists:keystore(data, 1, Nf, {data, Data}),
+    SendFun = fun(NfPL, Session) ->
+                      Name = req_val(name, Session),
+                      ct:pal("Call gcm_erl_session:send(~p, ~p)", [Name, NfPL]),
+                      gcm_erl_session:send(Name, NfPL)
+              end,
+    do_send_msg_test(Nf2, Config, SendFun).
+
+%%--------------------------------------------------------------------
+do_send_msg_test(Nf, Config, SendFun) ->
+    [begin
+         {ok, {success, {UUID, Props}}} = SendFun(Nf, Session),
+         true = is_uuid(UUID),
+         UUIDStr = uuid_to_str(UUID),
+         ct:pal("Got result, uuid = ~s, props = ~p", [UUIDStr, Props]),
+         %% Assert UUID is correct, if present
+         UUID = str_to_uuid(pv(uuid, Nf, UUIDStr))
+     end || Session <- req_val(gcm_sessions, Config)].
 
 %%--------------------------------------------------------------------
 do_forced_error_test(TestName, Config) ->
     RegId = sc_util:to_bin(req_val(registration_id, Config)),
     ReqUUID = make_uuid(),
-    Nf = [{uuid, ReqUUID} | make_nf(RegId, atom_to_list(TestName))],
+    Nf = [{uuid, uuid_to_str(ReqUUID)} |
+          make_nf(RegId, atom_to_list(TestName))],
     SC = <<"200">>,
     {SimErrorResult, SimReason} = sim_config(TestName),
     SimHdrs = [{"X-GCMSimulator-StatusCode", binary_to_list(SC)},
@@ -680,10 +753,12 @@ do_forced_error_test(TestName, Config) ->
             case Result of
                 {error, {UUID, {failed, [{FailReason, RegId}],
                                 rescheduled, [RegId]}}} ->
+                    true = is_uuid(UUID),
                     ReqUUID = UUID,
                     FailReason = expected_fail_reason(TestName),
                     ct:pal("~p: Rescheduled reg id ~p", [TestName, RegId]);
                 {error, {UUID, Props}} ->
+                    true = is_uuid(UUID),
                     ReqUUID = UUID,
                     SC = req_val(status, Props),
                     SimReason = req_val(reason, Props)
