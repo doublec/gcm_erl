@@ -302,9 +302,9 @@ send_msg_via_api_test(Config) ->
         begin
                 Name = req_val(name, Session),
                 ct:pal("Call gcm_erl:send(~p, ~p, ~p)", [Name, Nf, Opts]),
-                Result = gcm_erl:send(Name, Nf, Opts),
-                ct:pal("Got result: ~p", [Result]),
-                {ok, {UUID, Props}} = Result,
+                Res = gcm_erl:send(Name, Nf, Opts),
+                ct:pal("Got result: ~p", [Res]),
+                {ok, {UUID, Props}} = Res,
                 true = is_uuid(UUID),
                 UUIDStr = uuid_to_str(UUID),
                 ct:pal("Success, uuid = ~s, props = ~p", [UUIDStr, Props])
@@ -350,9 +350,9 @@ async_send_msg_cb_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:async_send_cb(~p, ~p, ~p, ~p, _)",
                    [Name, Nf, Opts, Pid]),
-            Result = gcm_erl_session:async_send_cb(Name, Nf, Opts, Pid, Cb),
-            ct:pal("Got result: ~p", [Result]),
-            {ok, {submitted, UUID}} = Result,
+            Res = gcm_erl_session:async_send_cb(Name, Nf, Opts, Pid, Cb),
+            ct:pal("Got result: ~p", [Res]),
+            {ok, {submitted, UUID}} = Res,
             true = is_uuid(UUID),
             UUIDStr = uuid_to_str(UUID),
             ct:pal("Submitted async cb notification, uuid = ~s~n", [UUIDStr]),
@@ -373,9 +373,9 @@ async_send_msg_via_api_test(Config) ->
         begin
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl:async_send(~p, ~p, ~p)", [Name, Nf, Opts]),
-            Result = gcm_erl:async_send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {ok, {submitted, UUID}} = Result,
+            Res = gcm_erl:async_send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {ok, {submitted, UUID}} = Res,
             true = is_uuid(UUID),
             UUIDStr = uuid_to_str(UUID),
             ct:pal("Submitted async notification, uuid = ~p~n", [UUIDStr]),
@@ -399,9 +399,9 @@ old_unavailable_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {UUID, {failed, PErrors, rescheduled, RegIds}}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {UUID, {failed, PErrors, rescheduled, RegIds}}} = Res,
             ct:pal("Failed: ~p; Rescheduled: ~p", [PErrors, RegIds]),
             [RegId] = RegIds,
             ReqUUID = UUID
@@ -424,9 +424,9 @@ bad_json_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {UUID, Props}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {UUID, Props}} = Res,
             ReqUUID = UUID,
             SC = req_val(status, Props),
             <<"BadRequest">> = req_val(reason, Props)
@@ -445,9 +445,9 @@ bad_req_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, BadNf, Opts]),
-            Result = gcm_erl_session:send(Name, BadNf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {missing_required_key_or_value, _}} = Result
+            Res = gcm_erl_session:send(Name, BadNf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {missing_required_key_or_value, _}} = Res
         end || Session <- req_val(gcm_sessions, Config)
     ],
     ok.
@@ -457,8 +457,8 @@ request_not_found_test(doc) ->
     ["Force request not found error"];
 request_not_found_test(Config) ->
     ReqId = erlang:make_ref(),
-    Result = <<"Bogus result">>,
-    BogusHttpResponse = {http, {ReqId, Result}},
+    Res = <<"Bogus result">>,
+    BogusHttpResponse = {http, {ReqId, Res}},
     [
      begin
          Name = req_val(name, Session),
@@ -488,9 +488,9 @@ regids_out_of_sync_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {ReqUUID, Reason}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {ReqUUID, Reason}} = Res,
             {reg_ids_out_of_sync, RegIdErrorInfo} = Reason,
             {_RegIds, _GCMResults, _CheckedResults} = RegIdErrorInfo
         end || Session <- req_val(gcm_sessions, Config)
@@ -512,11 +512,11 @@ auth_error_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {UUID, Props}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {UUID, Props}} = Res,
             ReqUUID = UUID,
-            ReqUUID = str_to_uuid(req_val(id, Props)),
+            ReqUUID = str_to_uuid(req_val(uuid, Props)),
             SC = req_val(status, Props),
             <<"AuthenticationFailure">> = req_val(reason, Props)
         end || Session <- req_val(gcm_sessions, Config)
@@ -539,9 +539,9 @@ http_error_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, Reason} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, Reason} = Res,
             ct:pal("Error: ~p", [Reason]),
             {failed_connect, _} = Reason
         end || Session <- req_val(gcm_sessions, Config)
@@ -645,9 +645,9 @@ canonical_id_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {ok, {UUID, Props}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {ok, {UUID, Props}} = Res,
             ReqUUID = UUID,
             SC = req_val(status, Props)
         end || Session <- req_val(gcm_sessions, Config)
@@ -668,10 +668,10 @@ server_500_test(Config) ->
      begin
          Name = req_val(name, Session),
          ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)", [Name, Nf, Opts]),
-         Result = gcm_erl_session:send(Name, Nf, Opts),
-         ct:pal("Got result: ~p", [Result]),
+         Res = gcm_erl_session:send(Name, Nf, Opts),
+         ct:pal("Got result: ~p", [Res]),
          Reason = {failed, [{gcm_unavailable, RegId}], rescheduled, [RegId]},
-         {error, {UUID, Reason}} = Result,
+         {error, {UUID, Reason}} = Res,
          ReqUUID = UUID
      end || Session <- req_val(gcm_sessions, Config)
     ],
@@ -696,9 +696,9 @@ server_200_with_retry_after_test(Config) ->
          Name = req_val(name, Session),
          ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                 [Name, Nf, Opts]),
-         Result = gcm_erl_session:async_send(Name, Nf, Opts),
-         ct:pal("Got result: ~p", [Result]),
-         {ok, {submitted, UUID}} = Result,
+         Res = gcm_erl_session:async_send(Name, Nf, Opts),
+         ct:pal("Got result: ~p", [Res]),
+         {ok, {submitted, UUID}} = Res,
          ReqUUID = UUID,
          Reason = {failed, [{gcm_unavailable, RegId}], rescheduled, [RegId]},
          ExpectedError = {error, {UUID, Reason}},
@@ -733,9 +733,9 @@ server_500_with_retry_after_test(Config) ->
          Name = req_val(name, Session),
          ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                 [Name, Nf, Opts]),
-         Result = gcm_erl_session:async_send(Name, Nf, Opts),
-         ct:pal("Got result: ~p", [Result]),
-         {ok, {submitted, UUID}} = Result,
+         Res = gcm_erl_session:async_send(Name, Nf, Opts),
+         ct:pal("Got result: ~p", [Res]),
+         {ok, {submitted, UUID}} = Res,
          ReqUUID = UUID,
          Reason = {failed, [{gcm_unavailable, RegId}], rescheduled, [RegId]},
          ExpectedError = {error, {UUID, Reason}},
@@ -766,9 +766,9 @@ unhandled_status_code_test(Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            {error, {UUID, Props}} = Result,
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            {error, {UUID, Props}} = Res,
             ReqUUID = UUID,
             SC = req_val(status, Props),
             StatusDesc = req_val(status_desc, Props),
@@ -854,7 +854,7 @@ async_receive_loop(UUID, TimeoutMs, Handler) when is_function(Handler, 1) ->
 assert_success(Resp) ->
     {ok, {UUID, Props}} = Resp,
     true = is_uuid(UUID),
-    UUID = str_to_uuid(req_val(id, Props)),
+    UUID = str_to_uuid(req_val(uuid, Props)),
     Status = req_val(status, Props),
     Status = <<"200">>.
 
@@ -884,7 +884,9 @@ do_send_msg_test(Nf, Config) ->
 %%--------------------------------------------------------------------
 do_send_msg_test(Nf, Config, SendFun) ->
     [begin
-         {ok, {UUID, Props}} = SendFun(Nf, Session),
+         Res = SendFun(Nf, Session),
+         ct:pal("Got result: ~p", [Res]),
+         {ok, {UUID, Props}} = Res,
          true = is_uuid(UUID),
          UUIDStr = uuid_to_str(UUID),
          ct:pal("Got result, uuid = ~s, props = ~p", [UUIDStr, Props]),
@@ -928,9 +930,9 @@ do_async_send_msg_test2(Nf0, Config) ->
 do_async_send_msg_test(Nf, Config, SendFun) ->
     [
      begin
-         Result = SendFun(Nf, Session),
-         ct:pal("Got result: ~p", [Result]),
-         {ok, {submitted, UUID}} = Result,
+         Res = SendFun(Nf, Session),
+         ct:pal("Got result: ~p", [Res]),
+         {ok, {submitted, UUID}} = Res,
          true = is_uuid(UUID),
          UUIDStr = uuid_to_str(UUID),
          ct:pal("Submitted async notification, uuid = ~s~n", [UUIDStr]),
@@ -955,9 +957,9 @@ do_forced_error_test(TestName, Config) ->
             Name = req_val(name, Session),
             ct:pal("Call gcm_erl_session:send(~p, ~p, ~p)",
                    [Name, Nf, Opts]),
-            Result = gcm_erl_session:send(Name, Nf, Opts),
-            ct:pal("Got result: ~p", [Result]),
-            case Result of
+            Res = gcm_erl_session:send(Name, Nf, Opts),
+            ct:pal("Got result: ~p", [Res]),
+            case Res of
                 {error, {UUID, {failed, [{FailReason, RegId}],
                                 rescheduled, [RegId]}}} ->
                     true = is_uuid(UUID),

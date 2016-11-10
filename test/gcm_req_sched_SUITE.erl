@@ -138,7 +138,7 @@ trigger_many_test(doc)   -> ["Test timeouts and trigger callback"];
 trigger_many_test(Config) ->
     Ids = lists:seq(1, 100),
     IdSet = sets:from_list(Ids), % Tracking
-    MaxSecs = 10,
+    MaxSecs = 2,
     Timeout = (MaxSecs + 3) * 1000, % ms
     Self = self(),
     Now = erlang:monotonic_time(seconds),

@@ -1707,7 +1707,7 @@ parsed_resp(Status, Reason, ReasonDesc, UUID, Resp) ->
     BResp = sc_util:to_bin(Resp),
     EJSON = try jsx:decode(BResp) catch _:_ -> BResp end,
 
-    [{id, uuid_to_str(UUID)},
+    [{uuid, uuid_to_str(UUID)},
      {status, S},
      {status_desc, SD}] ++
     case Reason of
