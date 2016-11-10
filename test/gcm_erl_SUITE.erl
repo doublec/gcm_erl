@@ -304,7 +304,7 @@ send_msg_via_api_test(Config) ->
                 ct:pal("Call gcm_erl:send(~p, ~p, ~p)", [Name, Nf, Opts]),
                 Result = gcm_erl:send(Name, Nf, Opts),
                 ct:pal("Got result: ~p", [Result]),
-                {ok, {success, {UUID, Props}}} = Result,
+                {ok, {UUID, Props}} = Result,
                 true = is_uuid(UUID),
                 UUIDStr = uuid_to_str(UUID),
                 ct:pal("Success, uuid = ~s, props = ~p", [UUIDStr, Props])
@@ -852,7 +852,7 @@ async_receive_loop(UUID, TimeoutMs, Handler) when is_function(Handler, 1) ->
 
 %%--------------------------------------------------------------------
 assert_success(Resp) ->
-    {ok, {success, {UUID, Props}}} = Resp,
+    {ok, {UUID, Props}} = Resp,
     true = is_uuid(UUID),
     UUID = str_to_uuid(req_val(id, Props)),
     Status = req_val(status, Props),
@@ -884,7 +884,7 @@ do_send_msg_test(Nf, Config) ->
 %%--------------------------------------------------------------------
 do_send_msg_test(Nf, Config, SendFun) ->
     [begin
-         {ok, {success, {UUID, Props}}} = SendFun(Nf, Session),
+         {ok, {UUID, Props}} = SendFun(Nf, Session),
          true = is_uuid(UUID),
          UUIDStr = uuid_to_str(UUID),
          ct:pal("Got result, uuid = ~s, props = ~p", [UUIDStr, Props]),

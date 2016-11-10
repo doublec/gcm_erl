@@ -234,7 +234,7 @@ Its function spec is</p><p></p><pre>    -spec callback(NfPL, Req, Resp) -> any()
 send(SvrRef, Nf) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Equivalent to [`send(SvrRef, Nf, [])`](#send-3).
 
@@ -246,7 +246,7 @@ Equivalent to [`send(SvrRef, Nf, [])`](#send-3).
 send(SvrRef, Nf, Opts) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {success, {UUID, Response}}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Nf = <a href="#type-notification">notification()</a></code></li><li><code>Opts = list()</code></li><li><code>Result = {ok, {UUID, Response}} | {error, Reason}</code></li><li><code>UUID = <a href="#type-uuid">uuid()</a></code></li><li><code>Response = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Synchronously send a notification specified by `Nf` via `SvrRef`, with
 options `Opts`. `SvrRef` can be the session name atom, a pid, or any other

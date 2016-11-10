@@ -62,7 +62,7 @@ defaults if omitted.
        {collapse_key, <<"New Mail">>},
        {data, [{msg, <<"You have new mail">>}]}
    ],
-   {ok, {success, Result}} = gcm_erl:send('gcm-com.example.MyApp', Opts),
+   {ok, Result} = gcm_erl:send('gcm-com.example.MyApp', Opts),
    {UUID, Props} = Result.
 ```
 
@@ -70,7 +70,7 @@ defaults if omitted.
 #### <a name="Sending_an_alert_via_a_session_(for_testing_only)">Sending an alert via a session (for testing only)</a> ####
 
 ```
-   {ok, {success, Result}} = gcm_erl_session:send('gcm-com.example.MyApp',
+   {ok, Result} = gcm_erl_session:send('gcm-com.example.MyApp',
                                                   Opts),
    {UUID, Props} = Result.
 ```
@@ -137,7 +137,7 @@ __See also:__ [send/3](#send-3), [gcm_erl_session:async_send/3](gcm_erl_session.
 send(SvrRef, Notification) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {success, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by proplist `Notification`
 to `SvrRef`.
@@ -152,7 +152,7 @@ __See also:__ [send/3](#send-3), [gcm_erl_session:send/2](gcm_erl_session.md#sen
 send(SvrRef, Notification, Opts) -&gt; Result
 </code></pre>
 
-<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Opts = <a href="proplists.md#type-proplist">proplists:proplist()</a></code></li><li><code>Result = {ok, {success, Reply}} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
+<ul class="definitions"><li><code>SvrRef = term()</code></li><li><code>Notification = <a href="gcm_json.md#type-notification">gcm_json:notification()</a></code></li><li><code>Opts = <a href="proplists.md#type-proplist">proplists:proplist()</a></code></li><li><code>Result = {ok, Reply} | {error, Reason}</code></li><li><code>Reply = term()</code></li><li><code>Reason = term()</code></li></ul>
 
 Send a notification specified by proplist `Notification`
 to `SvrRef` with options `Opts`. `Opts` currently only supports

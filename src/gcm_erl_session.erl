@@ -375,7 +375,7 @@ stop(SvrRef) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Nf) -> Result when
       SvrRef :: term(), Nf :: notification(),
-      Result :: {ok, {success, {UUID, Response}}} | {error, Reason},
+      Result :: {ok, {UUID, Response}} | {error, Reason},
       UUID :: uuid(), Response :: term(), Reason :: term().
 send(SvrRef, Nf) when is_list(Nf) ->
     send(SvrRef, Nf, []).
@@ -421,8 +421,8 @@ send(SvrRef, Nf) when is_list(Nf) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Nf, Opts) -> Result when
       SvrRef :: term(), Nf :: notification(), Opts :: list(),
-      Result :: {ok, {success, {UUID, Response}}} |
-      {error, Reason}, UUID :: uuid(), Response :: term(), Reason :: term().
+      Result :: {ok, {UUID, Response}} | {error, Reason},
+      UUID :: uuid(), Response :: term(), Reason :: term().
 send(SvrRef, Nf, Opts) when is_list(Nf), is_list(Opts) ->
     Req = #send_req{mode      = sync,
                     nf        = Nf,
@@ -846,7 +846,7 @@ pv_req(Key, PL) ->
 handle_gcm_result(SvrRef, Req, Result, BackoffParams) ->
     UUID = Req#gcm_req.uuid,
     case process_gcm_result(Req, Result) of
-        {{success, {_UUID, _Props}}=Success, _Hdrs} ->
+        {{success, {_UUID, _Props}=Success}, _Hdrs} ->
             {ok, Success};
         {{results, CheckedResults}, Hdrs} ->
             process_checked_results(SvrRef, Req, Hdrs, Result, CheckedResults);

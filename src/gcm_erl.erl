@@ -64,14 +64,14 @@
 %%%     {collapse_key, <<"New Mail">>},
 %%%     {data, [{msg, <<"You have new mail">>}]}
 %%% ],
-%%% {ok, {success, Result}} = gcm_erl:send('gcm-com.example.MyApp', Opts),
+%%% {ok, Result} = gcm_erl:send('gcm-com.example.MyApp', Opts),
 %%% {UUID, Props} = Result.
 %%% '''
 %%%
 %%% === Sending an alert via a session (for testing only) ===
 %%%
 %%% ```
-%%% {ok, {success, Result}} = gcm_erl_session:send('gcm-com.example.MyApp',
+%%% {ok, Result} = gcm_erl_session:send('gcm-com.example.MyApp',
 %%%                                                Opts),
 %%% {UUID, Props} = Result.
 %%% '''
@@ -132,7 +132,7 @@ stop_session(Name) when is_atom(Name) ->
 %%--------------------------------------------------------------------
 -spec send(SvrRef, Notification) -> Result when
       SvrRef :: term(), Notification :: gcm_json:notification(),
-      Result :: {success, Reply} | {error, Reason}, Reply :: term(),
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
       Reason :: term().
 send(SvrRef, Notification) when is_list(Notification) ->
     gcm_erl_session:send(SvrRef, Notification).
@@ -171,7 +171,7 @@ send(SvrRef, Notification) when is_list(Notification) ->
 -spec send(SvrRef, Notification, Opts) -> Result when
       SvrRef :: term(), Notification :: gcm_json:notification(),
       Opts :: proplists:proplist(),
-      Result :: {ok, {success, Reply}} | {error, Reason}, Reply :: term(),
+      Result :: {ok, Reply} | {error, Reason}, Reply :: term(),
       Reason :: term().
 send(SvrRef, Notification, Opts) when is_list(Notification),
                                 is_list(Opts) ->
