@@ -255,9 +255,13 @@ async_send_cb(Name, Nf0, Opts, ReplyPid, Cb) when is_list(Nf0),
     _ = ?LOG_DEBUG("async_send_cb: Name: ~p, Nf0: ~p~n"
                    "Opts: ~p, ReplyPid: ~p, Cb: ~p",
                    [Name, Nf0, Opts, ReplyPid, Cb]),
-    Nf = normalize_nf(Nf0),
-    _ = ?LOG_DEBUG("async_send_cb: Normalized nf: ~p~n", [Nf]),
-    gcm_erl_session:async_send_cb(Name, Nf, Opts, ReplyPid, Cb).
+    case try_normalize_nf(Nf0) of
+        {ok, Nf} ->
+            _ = ?LOG_DEBUG("async_send_cb: Normalized nf: ~p", [Nf]),
+            gcm_erl_session:async_send_cb(Name, Nf, Opts, ReplyPid, Cb);
+        Error ->
+            Error
+    end.
 
 %% ===================================================================
 %% Supervisor callbacks
@@ -283,15 +287,30 @@ init(Opts) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-send(Mode, Name, Nf, Opts) when (Mode == sync orelse Mode == async) andalso
-                                is_list(Nf) andalso is_list(Opts) ->
+send(Mode, Name, Nf0, Opts) when (Mode == sync orelse Mode == async) andalso
+                                 is_list(Nf0) andalso is_list(Opts) ->
     _ = ?LOG_DEBUG("send/4: Mode: ~p, Name: ~p, Nf: ~p, Opts: ~p",
-                   [Mode, Name, Nf, Opts]),
-    (send_fun(Mode))(Name, normalize_nf(Nf), Opts).
+                   [Mode, Name, Nf0, Opts]),
+    case try_normalize_nf(Nf0) of
+        {ok, Nf} ->
+            (send_fun(Mode))(Name, Nf, Opts);
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 send_fun(sync)  -> fun gcm_erl_session:send/3;
 send_fun(async) -> fun gcm_erl_session:async_send/3.
+
+%%--------------------------------------------------------------------
+try_normalize_nf(Nf) ->
+    try
+        {ok, normalize_nf(Nf)}
+    catch
+        throw:{missing_one_of, {_Nf, Keys}}=Exc ->
+            _ = ?LOG_ERROR("async_send_cb: exception ~p", [Exc]),
+            {error, {missing_one_of_keys, Keys}}
+    end.
 
 %%--------------------------------------------------------------------
 normalize_nf(Nf) ->
@@ -388,3 +407,5 @@ find_first(Data, Preds) when is_list(Preds) ->
         throw:{found, X} ->
             X
     end.
+
+
