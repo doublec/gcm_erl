@@ -112,7 +112,7 @@ start_opts() = [<a href="gcm_erl_session.md#type-opt">gcm_erl_session:opt()</a>]
 
 
 <pre><code>
-uuid() = <a href="/home/efine/work/sc/scpf/_build/default/lib/gcm_erl/_build/default/lib/uuid/doc/uuid.md#type-uuid">uuid:uuid()</a>
+uuid() = <a href="/home/efine/work/sc/open_source/scpf/gcm_erl/_build/default/lib/uuid/doc/uuid.md#type-uuid">uuid:uuid()</a>
 </code></pre>
 
 <a name="index"></a>

@@ -639,17 +639,17 @@ handle_cast(_Msg, St) ->
 handle_info({http, {RequestId, {error, Reason}=Err}}, St) ->
     Req = retrieve_req(RequestId),
     _ = ?LOG_DEBUG("Got http error resp, req: ~p, error: ~p, reqid: ~p",
-                   [Req, Err, RequestId]),
+                   [pp(Req), Err, RequestId]),
     do_cb(Err, Req),
     _ = ?LOG_WARNING("HTTP error; rescheduling request~n"
                      "Reason: ~p~nRequest ID: ~p~nRequest:~p",
-                     [Reason, RequestId, Req]),
+                     [Reason, RequestId, pp(sanitize_req(Req))]),
     reschedule_req(self(), backoff_params(St), Req),
     {noreply, St};
 handle_info({http, {ReqId, Result}}, St) ->
     _ = case retrieve_req(ReqId) of
             #gcm_req{} = Req ->
-                ?LOG_DEBUG("Got http resp for req ~p: ~p", [Req, Result]),
+                ?LOG_DEBUG("Got http resp for req ~p: ~p", [pp(Req), Result]),
                 Msg = handle_gcm_result(self(), Req, Result,
                                         backoff_params(St)),
                 do_cb(Msg, Req);
@@ -663,7 +663,7 @@ handle_info({http, {ReqId, Result}}, St) ->
 %% gcm_req_sched:add(ReqId, TriggerTime, NewReq, Pid).
 handle_info({triggered, {_ReqId, GCMReq}}, #?S{uri = URI} = St) ->
     _ = ?LOG_DEBUG("Triggered ~s to resend ~p",
-                   [uuid_to_str(GCMReq#gcm_req.uuid), GCMReq]),
+                   [uuid_to_str(GCMReq#gcm_req.uuid), pp(GCMReq)]),
     dispatch_req(GCMReq, St#?S.httpc_opts, URI),
     {noreply, St};
 handle_info(_Info, St) ->
@@ -787,7 +787,7 @@ dispatch_req(#gcm_req{uuid      = UUID,
                                                     bit_size(UUID) == 128 ->
 
     _ = ?LOG_DEBUG("dispatch_req(req: ~p, httpcopts: ~p, uri: ~p)",
-                   [GCMReq, HTTPCOpts, URI]),
+                   [pp(GCMReq), HTTPCOpts, URI]),
     ok = httpc:set_options(HTTPCOpts),
     ?LOG_DEBUG("httpc:set_options(~p)", [HTTPCOpts]),
     try httpc:request(post, Request, HTTPOpts, ReqOpts) of
@@ -999,7 +999,8 @@ process_checked_results(_SvrRef, _Req, _Hdrs, _Result, CheckedResults) ->
       Req :: gcm_req(), ErrorList :: checked_results(),
       Result :: [{gcm_error(), reg_id()}].
 process_errors(#gcm_req{} = Req, ErrorList) ->
-    [process_error(Req, Error) || Error <- ErrorList].
+    SReq = sanitize_req(Req),
+    [process_error(SReq, Error) || Error <- ErrorList].
 
 %%--------------------------------------------------------------------
 %% Some of the errors require a reschedule of only those registration IDs that
@@ -1055,7 +1056,7 @@ replace_prop(Key, Props, NewVal) ->
       Req :: gcm_req(), CheckedResult :: checked_result(),
       Result :: gcm_error() | {gcm_error(), reg_id()}.
 process_error(Req, {gcm_missing_reg, _BRegId}) ->
-    ?LOG_ERROR("Req missing registration ID: ~p", [Req]),
+    ?LOG_ERROR("Req missing registration ID: ~p", [pp(Req)]),
     {gcm_missing_reg, <<>>};
 process_error(_Req, {gcm_invalid_reg, BRegId}=Err) ->
     SvcTok = sc_push_reg_api:make_svc_tok(gcm, BRegId),
@@ -1067,18 +1068,18 @@ process_error(_Req, {gcm_mismatched_sender, BRegId}=Err) ->
     Err;
 process_error(Req, {gcm_not_registered, BRegId}=Err) ->
     _ = ?LOG_ERROR("Unregistered registration ID ~p in req ~p",
-                   [BRegId, Req]),
+                   [BRegId, pp(Req)]),
     SvcTok = sc_push_reg_api:make_svc_tok(gcm, BRegId),
     ok = sc_push_reg_api:deregister_svc_tok(SvcTok),
     Err;
 process_error(Req, {gcm_message_too_big, _BRegId}=Err) ->
-    ?LOG_ERROR("Message too big, req ~p", [Req]),
+    ?LOG_ERROR("Message too big, req ~p", [pp(Req)]),
     Err;
 process_error(Req, {gcm_invalid_data_key, _BRegId}=Err) ->
-    ?LOG_ERROR("Invalid data key in req: ~p", [Req]),
+    ?LOG_ERROR("Invalid data key in req: ~p", [pp(Req)]),
     Err;
 process_error(Req, {gcm_invalid_ttl, _BRegId}=Err) ->
-    ?LOG_ERROR("Invalid TTL in req: ~p", [Req]),
+    ?LOG_ERROR("Invalid TTL in req: ~p", [pp(Req)]),
     Err;
 process_error(Req, {gcm_unavailable, BRegId}=Err) ->
     ?LOG_WARNING("GCM timeout error for reg id ~p in req ~p", [BRegId, Req]),
@@ -1088,15 +1089,15 @@ process_error(Req, {gcm_internal_server_error, BRegId}=Err) ->
                  [BRegId, Req]),
     Err;
 process_error(Req, {gcm_invalid_package_name, _BRegId}=Err) ->
-    ?LOG_ERROR("Invalid package name in req ~p", [Req]),
+    ?LOG_ERROR("Invalid package name in req ~p", [pp(Req)]),
     Err;
 %% TODO: Figure out how to compensate for this
 process_error(Req, {gcm_device_msg_rate_exceeded, _BRegId}=Err) ->
-    ?LOG_ERROR("Device message rate exceeded in req ~p", [Req]),
+    ?LOG_ERROR("Device message rate exceeded in req ~p", [pp(Req)]),
     Err;
 %% TODO: If we add support for topics, fix this.
 process_error(Req, {gcm_topics_msg_rate_exceeded, _BRegId}=Err) ->
-    ?LOG_WARNING("Topics message rate exceeded in req ~p", [Req]),
+    ?LOG_WARNING("Topics message rate exceeded in req ~p", [pp(Req)]),
     Err;
 process_error(Req, {unknown_error_for_reg_id, {BRegId, GCMError}}=Err) ->
     ?LOG_ERROR("Unknown GCM Error ~p sending to registration ID ~p, req: ~p",
@@ -1759,6 +1760,30 @@ error_to_props({GcmError, {<<_RegId/binary>>, <<Reason/binary>>}},
                Resp, UUID) when is_atom(GcmError) ->
     ReasonDesc = reason_desc(Reason),
     parsed_resp(200, Reason, ReasonDesc, UUID, Resp).
+
+%%--------------------------------------------------------------------
+%% Remove sensitive and otherwise uninteresting request data for
+%% logging purposes.
+%%--------------------------------------------------------------------
+sanitize_req(#gcm_req{http_req=HttpReq}=R) ->
+    R#gcm_req{
+          http_req = sanitize_http_req(HttpReq)
+         }.
+
+%%--------------------------------------------------------------------
+sanitize_http_req({Uri, Headers0, CType, Body}) ->
+    Headers = lists:map(fun({K, _}=KV) ->
+                                case string:to_lower(K) of
+                                    "authorization" -> {K, "<redacted>"};
+                                    _ -> KV
+                                end
+                           end, Headers0),
+    {Uri, Headers, CType, Body}.
+
+%%--------------------------------------------------------------------
+-compile({inline, [{pp, 1}]}).
+pp(Rec) ->
+    lager:pr(Rec, ?MODULE).
 
 %% vim: ts=4 sts=4 sw=4 et tw=80
 
