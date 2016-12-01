@@ -101,6 +101,9 @@
 -export_type([opt/0,
               start_opts/0]).
 
+-include_lib("lager/include/lager.hrl").
+-include("gcm_erl_internal.hrl").
+
 -type opt() :: {uri, string()}
              | {api_key, binary()}
              | {restricted_package_name, binary()}
@@ -223,10 +226,6 @@
                         | {results_key(), gcm_results()}.
 
 -type gcm_ejson_response() :: ejson_dict(gcm_ejson_prop()).
-
-%%--------------------------------------------------------------------
--include_lib("lager/include/lager.hrl").
--include("gcm_erl_internal.hrl").
 
 %%--------------------------------------------------------------------
 -record(gcm_req, {
@@ -595,7 +594,7 @@ handle_call(get_state, _From, St) ->
     Reply = St,
     {reply, Reply, St};
 handle_call(_Msg, _From, St) ->
-    _ = ?LOG_DEBUG("Got unexpected handle_call msg ~p", [_Msg]),
+    _ = ?LOG_NOTICE("Got unexpected handle_call msg ~p", [_Msg]),
     Reply = {error, invalid_call},
     {reply, Reply, St}.
 
@@ -619,7 +618,7 @@ handle_cast({reschedule, #gcm_req{} = Req, Hdrs}, St) when is_list(Hdrs) ->
 handle_cast(stop, St) ->
     {stop, stopped_by_api, St};
 handle_cast(_Msg, St) ->
-    _ = ?LOG_DEBUG("Got unexpected handle_cast msg ~p", [_Msg]),
+    _ = ?LOG_NOTICE("Got unexpected handle_cast msg ~p", [_Msg]),
     {noreply, St}.
 
 %%--------------------------------------------------------------------
@@ -667,7 +666,7 @@ handle_info({triggered, {_ReqId, GCMReq}}, #?S{uri = URI} = St) ->
     dispatch_req(GCMReq, St#?S.httpc_opts, URI),
     {noreply, St};
 handle_info(_Info, St) ->
-    _ = ?LOG_DEBUG("Got unexpected handle_info msg ~p", [_Info]),
+    _ = ?LOG_NOTICE("Got unexpected handle_info msg ~p", [_Info]),
     {noreply, St}.
 
 %%--------------------------------------------------------------------
@@ -801,8 +800,9 @@ dispatch_req(#gcm_req{uuid      = UUID,
             _ = ?LOG_ERROR("POST error to ~s:~n~p", [URI, Error]),
             Error
     catch
-        _Class:Reason ->
-            _ = ?LOG_ERROR("POST failed to ~s, reason:~n~p", [URI, Reason]),
+        Class:Reason ->
+            _ = ?LOG_ERROR("POST failed to ~s~nStack trace:~s",
+                           [URI, ?STACKTRACE(Class, Reason)]),
             {error, Reason}
     end.
 

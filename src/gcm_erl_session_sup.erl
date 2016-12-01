@@ -40,6 +40,7 @@
 -define(SERVER, ?MODULE).
 
 -include_lib("lager/include/lager.hrl").
+-include("gcm_erl_internal.hrl").
 
 %% ===================================================================
 %% API functions
@@ -97,9 +98,11 @@ init([]) ->
 
 
 start_child(Opts) ->
-    _ = lager:info("Starting GCM session with opts: ~p", [Opts]),
+    ?LOG_INFO("Starting GCM session with opts: ~p",
+              [gcm_erl_util:sanitize_opts(Opts)]),
     Name = sc_util:req_val(name, Opts),
     SessCfg = sc_util:req_val(config, Opts),
     start_child(Name, SessCfg).
+
 
 %% vim: ts=4 sts=4 sw=4 et tw=80

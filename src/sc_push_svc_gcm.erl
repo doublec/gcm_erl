@@ -252,12 +252,12 @@ async_send_cb(Name, Nf0, Opts, ReplyPid, Cb) when is_list(Nf0),
                                                   is_list(Opts),
                                                   is_pid(ReplyPid),
                                                   is_function(Cb, 3) ->
-    _ = ?LOG_DEBUG("async_send_cb: Name: ~p, Nf0: ~p~n"
+    _ = ?LOG_DEBUG("Name: ~p, Nf0: ~p~n"
                    "Opts: ~p, ReplyPid: ~p, Cb: ~p",
                    [Name, Nf0, Opts, ReplyPid, Cb]),
     case try_normalize_nf(Nf0) of
         {ok, Nf} ->
-            _ = ?LOG_DEBUG("async_send_cb: Normalized nf: ~p", [Nf]),
+            _ = ?LOG_DEBUG("Normalized nf: ~p", [Nf]),
             gcm_erl_session:async_send_cb(Name, Nf, Opts, ReplyPid, Cb);
         Error ->
             Error
@@ -268,7 +268,8 @@ async_send_cb(Name, Nf0, Opts, ReplyPid, Cb) when is_list(Nf0),
 %% ===================================================================
 
 init(Opts) ->
-    _ = ?LOG_INFO("Starting service with opts: ~p", [Opts]),
+    ?LOG_INFO("Starting service with opts: ~p",
+              [gcm_erl_util:sanitize_opts(Opts)]),
     RestartStrategy    = one_for_one,
     MaxRestarts        = 10, % If there are more than this many restarts
     MaxTimeBetRestarts = 60, % In this many seconds, then terminate supervisor
@@ -289,7 +290,7 @@ init(Opts) ->
 %%--------------------------------------------------------------------
 send(Mode, Name, Nf0, Opts) when (Mode == sync orelse Mode == async) andalso
                                  is_list(Nf0) andalso is_list(Opts) ->
-    _ = ?LOG_DEBUG("send/4: Mode: ~p, Name: ~p, Nf: ~p, Opts: ~p",
+    _ = ?LOG_DEBUG("Mode: ~p, Name: ~p, Nf: ~p, Opts: ~p",
                    [Mode, Name, Nf0, Opts]),
     case try_normalize_nf(Nf0) of
         {ok, Nf} ->
@@ -308,7 +309,7 @@ try_normalize_nf(Nf) ->
         {ok, normalize_nf(Nf)}
     catch
         throw:{missing_one_of, {_Nf, Keys}}=Exc ->
-            _ = ?LOG_ERROR("async_send_cb: exception ~p", [Exc]),
+            ?LOG_ERROR("Stacktrace:~s", [?STACKTRACE(throw, Exc)]),
             {error, {missing_one_of_keys, Keys}}
     end.
 
@@ -393,7 +394,7 @@ delete_props(Keys, Props) ->
 %% Preds is list of fun/1.
 %% Each fun takes Data and returns either false or transformed Data.
 find_first(Data, Preds) when is_list(Preds) ->
-    _ = ?LOG_DEBUG("find_first/2: Preds: ~p~nData: ~p", [Preds, Data]),
+    ?LOG_DEBUG("Preds: ~p~nData: ~p", [Preds, Data]),
     try
         lists:foldl(fun(Pred, _Acc) when is_function(Pred, 1) ->
                             case Pred(Data) of

@@ -23,6 +23,7 @@
                 gcm_erl,
                 gcm_erl_session_sup,
                 gcm_erl_session,
+                gcm_erl_util,
                 gcm_json,
                 gcm_req_sched
             ]},

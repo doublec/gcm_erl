@@ -29,6 +29,7 @@
 -export([start/2, stop/1]).
 
 -include_lib("lager/include/lager.hrl").
+-include("gcm_erl_internal.hrl").
 
 %% ===================================================================
 %% Application callbacks
@@ -41,7 +42,8 @@
 start(_StartType, _StartArgs) ->
     {ok, App} = application:get_application(?MODULE),
     Opts = application:get_all_env(App),
-    _ = lager:info("Starting app ~p with opts: ~p", [App, Opts]),
+    ?LOG_INFO("Starting app ~p with opts: ~p",
+              [App, gcm_erl_util:sanitize_opts(Opts)]),
     Sessions = sc_util:req_val(sessions, Opts),
     Service = sc_util:req_val(service, Opts),
     case sc_push_svc_gcm:start_link(Sessions) of
@@ -60,15 +62,15 @@ start(_StartType, _StartArgs) ->
 %%--------------------------------------------------------------------
 stop(_State) ->
     _ = try
-        {ok, App} = application:get_application(?MODULE),
-        Opts = application:get_all_env(App),
-        Service = sc_util:req_val(service, Opts),
-        SvcName = sc_util:req_val(name, Service),
-        sc_push_lib:unregister_service(SvcName)
-    catch
-        Class:Reason ->
-            _ = lager:error("Unable to deregister gcm service: ~p",
-                            [{Class, Reason}])
-    end,
+            {ok, App} = application:get_application(?MODULE),
+            Opts = application:get_all_env(App),
+            Service = sc_util:req_val(service, Opts),
+            SvcName = sc_util:req_val(name, Service),
+            sc_push_lib:unregister_service(SvcName)
+        catch
+            Class:Reason ->
+                ?LOG_ERROR("Unable to deregister gcm service, stacktrace:~s",
+                           [?STACKTRACE(Class, Reason)])
+        end,
     ok.
 
