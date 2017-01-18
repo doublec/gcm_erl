@@ -30,16 +30,28 @@
                  end
          end)(Filename))).
 
--define(LOG_GENERAL(Level, Fmt, Args), lager:Level(Fmt, Args)).
+-define(LOG_GENERAL(Sink, Level, Fmt, Args), Sink:Level(Fmt, Args)).
 
--define(LOG_DEBUG(Fmt, Args),     ?LOG_GENERAL(debug, Fmt, Args)).
--define(LOG_INFO(Fmt, Args),      ?LOG_GENERAL(info, Fmt, Args)).
--define(LOG_NOTICE(Fmt, Args),    ?LOG_GENERAL(notice, Fmt, Args)).
--define(LOG_WARNING(Fmt, Args),   ?LOG_GENERAL(warning, Fmt, Args)).
--define(LOG_ERROR(Fmt, Args),     ?LOG_GENERAL(error, Fmt, Args)).
--define(LOG_CRITICAL(Fmt, Args),  ?LOG_GENERAL(critical, Fmt, Args)).
--define(LOG_ALERT(Fmt, Args),     ?LOG_GENERAL(alert, Fmt, Args)).
--define(LOG_EMERGENCY(Fmt, Args), ?LOG_GENERAL(emergency, Fmt, Args)).
+-define(LOG_DEBUG(Fmt, Args),     ?LOG_GENERAL(lager, debug, Fmt, Args)).
+-define(LOG_INFO(Fmt, Args),      ?LOG_GENERAL(lager, info, Fmt, Args)).
+-define(LOG_NOTICE(Fmt, Args),    ?LOG_GENERAL(lager, notice, Fmt, Args)).
+-define(LOG_WARNING(Fmt, Args),   ?LOG_GENERAL(lager, warning, Fmt, Args)).
+-define(LOG_ERROR(Fmt, Args),     ?LOG_GENERAL(lager, error, Fmt, Args)).
+-define(LOG_CRITICAL(Fmt, Args),  ?LOG_GENERAL(lager, critical, Fmt, Args)).
+-define(LOG_ALERT(Fmt, Args),     ?LOG_GENERAL(lager, alert, Fmt, Args)).
+-define(LOG_EMERGENCY(Fmt, Args), ?LOG_GENERAL(lager, emergency, Fmt, Args)).
+
+% Note this requires {extra_sinks, [{sentry_lager_event, [{handlers, ...}]}]}
+% in lager's sys.config stanza. It also needs {lager_extra_sinks, [sentry]} in
+% rebar.config.
+-define(SENTRY_DEBUG(Fmt, Args),     ?LOG_GENERAL(sentry, debug, Fmt, Args)).
+-define(SENTRY_INFO(Fmt, Args),      ?LOG_GENERAL(sentry, info, Fmt, Args)).
+-define(SENTRY_NOTICE(Fmt, Args),    ?LOG_GENERAL(sentry, notice, Fmt, Args)).
+-define(SENTRY_WARNING(Fmt, Args),   ?LOG_GENERAL(sentry, warning, Fmt, Args)).
+-define(SENTRY_ERROR(Fmt, Args),     ?LOG_GENERAL(sentry, error, Fmt, Args)).
+-define(SENTRY_CRITICAL(Fmt, Args),  ?LOG_GENERAL(sentry, critical, Fmt, Args)).
+-define(SENTRY_ALERT(Fmt, Args),     ?LOG_GENERAL(sentry, alert, Fmt, Args)).
+-define(SENTRY_EMERGENCY(Fmt, Args), ?LOG_GENERAL(sentry, emergency, Fmt, Args)).
 
 -define(STACKTRACE(Class, Reason),
         lager:pr_stacktrace(erlang:get_stacktrace(), {Class, Reason})).

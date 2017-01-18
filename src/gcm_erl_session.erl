@@ -1067,7 +1067,8 @@ process_error(_Req, {gcm_mismatched_sender, BRegId}=Err) ->
     ?LOG_ERROR("Mismatched Sender for registration ID ~p", [BRegId]),
     Err;
 process_error(Req, {gcm_not_registered, BRegId}=Err) ->
-    _ = ?LOG_ERROR("Unregistered registration ID ~p in req ~p",
+    _ = ?SENTRY_WARNING("Unregistered registration ID ~s", [BRegId]),
+    _ = ?LOG_ERROR("Unregistered registration ID ~s in req ~p",
                    [BRegId, pp(Req)]),
     SvcTok = sc_push_reg_api:make_svc_tok(gcm, BRegId),
     ok = sc_push_reg_api:deregister_svc_tok(SvcTok),
