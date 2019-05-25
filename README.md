@@ -4,11 +4,11 @@
 
 Copyright (c) 2015 Silent Circle
 
-__Version:__ 1.1.2
+__Version:__ 1.1.3
 
 __Authors:__ Edwin Fine ([`efine@silentcircle.com`](mailto:efine@silentcircle.com)).
 
-`gcm_erl` is an SCPF service provider for Google Cloud Messaging (GCM).
+`gcm_erl` is an SCPF service provider for Firebase Cloud Messaging (FCM).
 
 ## Modules ##
 

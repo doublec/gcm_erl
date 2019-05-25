@@ -126,7 +126,7 @@
 -define(DAYS, (24 * ?HOURS)).
 -define(WEEKS, (7 * ?DAYS)).
 
--define(DEFAULT_GCM_URI, "https://gcm-http.googleapis.com/gcm/send").
+-define(DEFAULT_GCM_URI, "https://fcm.googleapis.com/fcm/send").
 -define(DEFAULT_MAX_ATTEMPTS, 1000).
 -define(DEFAULT_RETRY_INTERVAL, 1).
 -define(DEFAULT_MAX_REQ_TTL, 3600).
@@ -345,7 +345,7 @@ start(Name, StartOpts) when is_atom(Name), is_list(StartOpts) ->
 %%        Optional.</dd>
 %%     <dt>`{uri, string()}'</dt>
 %%        <dd>GCM URI, defaults to
-%%        `https://gcm-http.googleapis.com/gcm/send'. Optional.</dd>
+%%        `https://fcm.googleapis.com/fcm/send'. Optional.</dd>
 %%     <dt>`{collapse_key, string()}'</dt>
 %%        <dd>Arbitrary string use to collapse a group of like
 %%        messages into a single message when the device is offline.
@@ -759,7 +759,7 @@ validate_args(Name, Opts) ->
 %%                                   <<"<redacted>">>}]}]},
 %%                      {id,<<"<redacted>">>},
 %%                      {data,[{<<"alert">>,<<"Please register">>}]}],
-%%          http_req = {"https://gcm-http.googleapis.com/gcm/send",
+%%          http_req = {"https://fcm.googleapis.com/fcm/send",
 %%                      [{"Authorization", "key=<redacted>"}],
 %%                      "application/json",
 %%                      <<"{\"to\":\"<redacted>\","

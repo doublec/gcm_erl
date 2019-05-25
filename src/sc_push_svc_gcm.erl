@@ -34,7 +34,7 @@
 %%%     {config, [
 %%%             {api_key, <<"AIzaffffffffffffffffffffffffffffffff73w">>},
 %%%             {ssl_opts, [{verify, verify_none}]},
-%%%             {uri, "https://gcm-http.googleapis.com/gcm/send"},
+%%%             {uri, "https://fcm.googleapis.com/fcm/send"},
 %%%             {max_attempts, 5},
 %%%             {retry_interval, 1},
 %%%             {max_req_ttl, 600}

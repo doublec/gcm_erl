@@ -38,7 +38,7 @@
 %%%                 {reuse_sessions, true}
 %%%             ]},
 %%%             %% Optional, defaults as shown.
-%%%             {uri, "https://gcm-http.googleapis.com/gcm/send"},
+%%%             {uri, "https://fcm.googleapis.com/fcm/send"},
 %%%             %% Optional, omitted if missing.
 %%%             {restricted_package_name, <<"my-android-pkg">>},
 %%%             %% Maximum times to try to send and then give up.
